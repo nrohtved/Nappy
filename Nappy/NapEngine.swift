@@ -182,19 +182,39 @@ final class NapEngine {
         return ok
     }
 
-    /// Helper processes (e.g. Chrome renderers) are children of the app; throttle them too.
+    /// Helper processes of an app: its child processes (Chrome/VS Code helpers) plus processes macOS
+    /// attributes to it as the "responsible" process (XPC services such as Safari's WebKit networking/GPU
+    /// processes, which are launched by launchd and so are not children).
     private func descendants(of pid: pid_t) -> [pid_t] {
-        var result: [pid_t] = []
+        var result = Set<pid_t>()
         var queue = [pid]
         while let p = queue.popLast() {
             var buf = [pid_t](repeating: 0, count: 256)
             let bytes = proc_listchildpids(p, &buf, Int32(buf.count * MemoryLayout<pid_t>.size))
             guard bytes > 0 else { continue }
-            let kids = buf.prefix(Int(bytes) / MemoryLayout<pid_t>.size).filter { $0 > 0 }
-            result += kids; queue += kids
+            for kid in buf.prefix(Int(bytes) / MemoryLayout<pid_t>.size) where kid > 0 && result.insert(kid).inserted {
+                queue.append(kid)
+            }
         }
-        return result
+        if let responsible = Self.responsibleFn {
+            let count = Int(proc_listallpids(nil, 0))
+            if count > 0 {
+                var all = [pid_t](repeating: 0, count: count + 64)
+                let n = Int(proc_listallpids(&all, Int32(all.count * MemoryLayout<pid_t>.size)))
+                for other in all.prefix(max(n, 0)) where other > 1 && other != pid && responsible(other) == pid {
+                    result.insert(other)
+                }
+            }
+        }
+        result.remove(pid)
+        return Array(result)
     }
+
+    /// `responsibility_get_pid_responsible_for_pid` — the call Activity Monitor uses to group helpers under their app.
+    private static let responsibleFn: (@convention(c) (pid_t) -> pid_t)? = {
+        guard let sym = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "responsibility_get_pid_responsible_for_pid") else { return nil }
+        return unsafeBitCast(sym, to: (@convention(c) (pid_t) -> pid_t).self)
+    }()
 
     // MARK: Crash safety — never leave apps throttled if Nappy dies
 
