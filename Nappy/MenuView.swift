@@ -3,6 +3,11 @@ import ServiceManagement
 import UniformTypeIdentifiers
 
 struct MenuView: View {
+    /// True when shown inside the floating pinned window instead of the menu bar panel.
+    var pinned = false
+    private var flags = FeatureFlags.shared
+    @State private var flagsExpanded = false
+    @State private var contentHeight: CGFloat = 400
     @Bindable private var settings = Settings.shared
     private var engine = NapEngine.shared
 
@@ -15,12 +20,27 @@ struct MenuView: View {
     var body: some View {
         VStack(spacing: 10) {
             header
-            napCard
-            optionsCard
+            // The cards scroll when they are taller than the screen; header and footer stay put.
+            ScrollView {
+                VStack(spacing: 10) {
+                    napCard
+                    optionsCard
+                }
+                .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { contentHeight = $0 }
+            }
+            .scrollIndicators(.automatic)
+            .scrollBounceBehavior(.basedOnSize)
+            .frame(height: min(contentHeight, maxScrollHeight))
             footer
         }
         .padding()
         .frame(width: 350)
+    }
+
+    /// Room left on the screen once the header, footer, padding and menu bar are taken out.
+    private var maxScrollHeight: CGFloat {
+        let screen = NSScreen.main?.visibleFrame.height ?? 800
+        return max(240, screen - 190)
     }
 
     // MARK: Header
@@ -165,6 +185,8 @@ struct MenuView: View {
             }
 
             Divider()
+            featureFlags
+            Divider()
             activityLog
         }
         .toggleStyle(.switch).controlSize(.small)
@@ -172,6 +194,44 @@ struct MenuView: View {
         .padding(12)
         .glassEffect(.regular, in: .rect(cornerRadius: 16))
         .onAppear { launchAtLogin = SMAppService.mainApp.status == .enabled }
+    }
+
+    // MARK: Feature flags
+
+    private var featureFlags: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Button { withAnimation(.snappy) { flagsExpanded.toggle() } } label: {
+                HStack {
+                    Text("Feature flags").font(.subheadline.weight(.medium))
+                    Spacer()
+                    Text("\(flags.onCount) on").font(.callout).foregroundStyle(.secondary)
+                    Image(systemName: "chevron.right").font(.caption.weight(.semibold))
+                        .rotationEffect(.degrees(flagsExpanded ? 90 : 0))
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            if flagsExpanded {
+                ForEach(Flag.allCases) { flag in
+                    VStack(alignment: .leading, spacing: 6) {
+                        Toggle(isOn: flags.binding(flag)) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                HStack(spacing: 6) {
+                                    Text(flag.title)
+                                    Text(flag.id).font(.system(size: 10, design: .monospaced)).foregroundStyle(.secondary)
+                                        .padding(.horizontal, 5).padding(.vertical, 1)
+                                        .background(.quaternary, in: .capsule)
+                                        .textSelection(.enabled)
+                                }
+                                Text(flag.detail).font(.caption).foregroundStyle(.secondary)
+                            }
+                        }
+                        if flags.isOn(flag) { FlagDetail(flag: flag) }
+                    }
+                }
+            }
+        }
     }
 
     // MARK: Activity log
@@ -235,6 +295,16 @@ struct MenuView: View {
             .popover(isPresented: $showInfo) {
                 Text("Apps that stay in the background are put into macOS's native background mode: lowest CPU priority and throttled disk and network, like App Nap. They keep running and are restored instantly when you switch back. Apps that are playing audio, in a call or downloading are skipped. If Nappy quits, everything is restored.")
                     .font(.callout).padding().frame(width: 280)
+            }
+            if flags.isOn(.pinPanel) {
+                Spacer()
+                Button {
+                    if pinned { PinnablePanel.close() } else { PinnablePanel.show(title: "Nappy") { MenuView(pinned: true) } }
+                } label: {
+                    Image(systemName: pinned ? "pin.slash" : "pin").font(.callout).frame(width: 44, height: 24)
+                        .glassEffect(.regular.interactive(), in: .capsule)
+                }
+                .buttonStyle(.plain)
             }
             Spacer()
             Button { NSApp.terminate(nil) } label: {
