@@ -15,6 +15,10 @@ enum Flag: String, CaseIterable, Identifiable {
     case freezeHelpers
     case batteryStats
     case forceNap
+    case pictureInPicture
+    case blurPanel
+    case tintPanel
+    case wakeOnHover
 
     var id: String { rawValue }
 
@@ -29,6 +33,10 @@ enum Flag: String, CaseIterable, Identifiable {
         case .freezeHelpers: "Pause Electron app helpers"
         case .batteryStats: "Battery report"
         case .forceNap: "Lock apps to nap"
+        case .pictureInPicture: "Protect Picture in Picture"
+        case .blurPanel: "Blurred pinned window"
+        case .tintPanel: "See-through pinned window"
+        case .wakeOnHover: "Wake paused apps on hover"
         }
     }
 
@@ -38,6 +46,10 @@ enum Flag: String, CaseIterable, Identifiable {
         case .powerStats: "Compares how hard your background apps work with Nappy off and on, and shows how much is saved."
         case .wakeStats: "Counts how often apps nap and wake up, and how many wake-ups Nappy prevented."
         case .napCooldown: "After you switch back to an app, waits 3 min before napping it again, so it doesn't nap and wake over and over."
+        case .wakeOnHover: "A paused locked app is woken at once when the pointer is over one of its windows, when the pointer is over the Dock (to open or restore a window from it), when one of its windows becomes visible, or while Activity Monitor is in front (so Quit works). It is paused again 1.5 s after the pointer leaves the window or the Dock. Needs Lock apps to nap."
+        case .blurPanel: "The pinned window uses a blurred background (the kind sidebars and popovers use) instead of its standard glass."
+        case .tintPanel: "Adds a see-through colour over the pinned window background. Use the slider to set how solid it is."
+        case .pictureInPicture: "While a Picture in Picture window is open, the apps you were using in the last 2 minutes are not napped (and are woken if they were), until it closes. Their icons show under Don't Nap Busy Apps. Needs Don't Nap Busy Apps to be on."
         case .forceNap: "Adds a lock button to apps in Napping Now. A locked app is paused completely while it naps with no window showing, so it cannot wake itself. Only Nappy wakes it: when you switch to it, or press wake up."
         case .batteryStats: "Compares how much power the whole Mac uses with Nappy off and on, and shows the % saved and the extra battery time."
         case .freezeHelpers: "For apps built with Electron (Figma, Notion…): while napping with no window showing, pauses the parts that draw the screen for 55 s, then lets them run for 5 s, and repeats."
@@ -53,6 +65,11 @@ final class FeatureFlags {
 
     private(set) var enabled: Set<String>
     @ObservationIgnored private let key = "nappy.flags.v1"
+
+    /// How solid the `tintPanel` background is (0 = fully see-through, 1 = solid).
+    var tintOpacity: Double = (UserDefaults.standard.object(forKey: "nappy.tintOpacity") as? Double) ?? 0.5 {
+        didSet { UserDefaults.standard.set(tintOpacity, forKey: "nappy.tintOpacity") }
+    }
 
     private init() {
         enabled = Set(UserDefaults.standard.stringArray(forKey: key) ?? [])
@@ -83,7 +100,7 @@ import Foundation
 /// The public build has no experiments menu: the experiments that were switched on are simply always on,
 /// and the ones that were off were cut.
 enum Flag: String {
-    case pinPanel, groupAudit, freezeHelpers, forceNap
+    case pinPanel, groupAudit, freezeHelpers, forceNap, wakeOnHover
 }
 
 final class FeatureFlags {

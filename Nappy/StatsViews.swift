@@ -10,7 +10,9 @@ struct FlagDetail: View {
 
     var body: some View {
         switch flag {
-        case .pinPanel, .batchSave: EmptyView()
+        case .pinPanel, .batchSave, .pictureInPicture, .blurPanel: EmptyView()
+        case .tintPanel: tintOptions
+        case .wakeOnHover: hoverStats
         case .powerStats: power
         case .wakeStats: wake
         case .napCooldown: cooldown
@@ -154,6 +156,29 @@ struct FlagDetail: View {
 
     private func watts(_ w: Double) -> String { String(format: "%.2f W", w) }
     private func hours(_ h: Double) -> String { String(format: "%.1f h", h) }
+
+    // MARK: Wake on hover
+
+    private var hoverStats: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            statLine("Woken by the pointer", "\(NapEngine.shared.hoverWakes)")
+            Text("Applies to apps locked with the lock button that are paused: the pointer over one of their windows or over the Dock wakes them, and so does a window of theirs becoming visible, or Activity Monitor coming to the front.").font(.caption2).foregroundStyle(.secondary)
+        }
+        .padding(.leading, 4)
+    }
+
+    // MARK: Pinned window background
+
+    private var tintOptions: some View {
+        @Bindable var flags = FeatureFlags.shared
+        return HStack(spacing: 8) {
+            Text("See-through").font(.caption2).foregroundStyle(.secondary)
+            Slider(value: $flags.tintOpacity, in: 0...1).controlSize(.small)
+            Text("Solid").font(.caption2).foregroundStyle(.secondary)
+            Text("\(Int((flags.tintOpacity * 100).rounded()))%").font(.system(size: 11)).monospacedDigit().frame(width: 34, alignment: .trailing)
+        }
+        .padding(.leading, 4)
+    }
 
     // MARK: Locked apps
 

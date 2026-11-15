@@ -89,6 +89,11 @@ final class NapEngine {
         nc.addObserver(forName: NSWorkspace.didLaunchApplicationNotification, object: nil, queue: .main) { [weak self] _ in
             Task { @MainActor [weak self] in self?.appListDirty = true }
         }
+        // Logging out, restarting or shutting down asks every app to quit. A paused app cannot answer, and the system would
+        // wait for it, so everything is woken first.
+        nc.addObserver(forName: NSWorkspace.willPowerOffNotification, object: nil, queue: .main) { [weak self] _ in
+            Task { @MainActor [weak self] in self?.resumeAll(reason: "logging out or shutting down") }
+        }
         nc.addObserver(forName: NSWorkspace.didTerminateApplicationNotification, object: nil, queue: .main) { [weak self] note in
             guard let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else { return }
             Task { @MainActor [weak self] in self?.appTerminated(app) }
@@ -113,6 +118,9 @@ final class NapEngine {
         }
         let now = Date()
         let workspace = NSWorkspace.shared
+        #if !PUBLIC
+        if settings.respectPowerAssertions { _ = pidsProtectedByPictureInPicture() }   // keeps the "recently used" list and the open/closed state current
+        #endif
         let frontPID = workspace.frontmostApplication?.processIdentifier
         // The window list and power-assertion list are only read when an app is actually about to nap, once per tick.
         var visibleCache: Set<pid_t>?, awakeCache: Set<pid_t>?
@@ -125,6 +133,12 @@ final class NapEngine {
             if let a = awakeCache { return a }
             let a = settings.respectPowerAssertions ? pidsHoldingAssertions() : []
             awakeCache = a; return a
+        }
+        var floatingCache: Set<pid_t>?
+        func floating() -> Set<pid_t> {      // Picture in Picture sources (`pictureInPicture` flag, Dev build only)
+            if let f = floatingCache { return f }
+            let f = settings.respectPowerAssertions ? pidsProtectedByPictureInPicture() : []
+            floatingCache = f; return f
         }
         let delay = TimeInterval(settings.delaySeconds)
         var alive = Set<pid_t>()
@@ -140,7 +154,13 @@ final class NapEngine {
                 continue
             }
 
-            if isNapped(pid) { continue }
+            if isNapped(pid) {
+                #if !PUBLIC
+                // A Picture in Picture window that opened after the nap: wake the app, it would stutter otherwise.
+                if floating().contains(pid) { resume(pid: pid, reason: "picture in picture started") }
+                #endif
+                continue
+            }
 
             let since = backgroundSince[pid] ?? now
             backgroundSince[pid] = since
@@ -156,8 +176,9 @@ final class NapEngine {
                 continue
             }
             #endif
-            if visible().contains(pid) || awake().contains(pid) {
-                let reason = visible().contains(pid) ? "has a visible window" : "keeping Mac awake (power assertion)"
+            if visible().contains(pid) || awake().contains(pid) || floating().contains(pid) {
+                let reason = visible().contains(pid) ? "has a visible window"
+                    : floating().contains(pid) ? "kept awake (busy)" : "keeping Mac awake (power assertion)"
                 if skipReason[pid] != reason {
                     skipReason[pid] = reason
                     log.add("skip  \(app.localizedName ?? "App") (pid \(pid)) — \(reason)")
@@ -175,6 +196,7 @@ final class NapEngine {
         #endif
         auditNapped(now)
         maintainFrozen(now)
+        updateHoverMonitoring()
         persistPIDs()
         statusText = napped.isEmpty ? "Watching your apps" : "\(napped.count) app\(napped.count == 1 ? "" : "s") napping"
     }
@@ -200,6 +222,18 @@ final class NapEngine {
                 napped[i].frozen = []; napped[i].isStopped = false; napped[i].hardFreeze = false
             }
         }
+    }
+
+    /// Apps that are keeping the Mac awake right now (playing sound, in a call, downloading…): the apps that
+    /// "Don't Nap Busy Apps" leaves alone. An assertion held by one of an app's helpers counts for the app.
+    func busyApps() -> [NSRunningApplication] {
+        let awake = pidsHoldingAssertions().union(pidsProtectedByPictureInPicture())
+        guard !awake.isEmpty else { return [] }
+        let apps = runningRegularApps().filter { isNappable($0) }
+        let owner = ProcessTable.members(of: apps.map(\.processIdentifier))
+        let busyRoots = Set(owner.filter { awake.contains($0.key) }.values)
+        return apps.filter { busyRoots.contains($0.processIdentifier) }
+            .sorted { ($0.localizedName ?? "").localizedCaseInsensitiveCompare($1.localizedName ?? "") == .orderedAscending }
     }
 
     func isNapped(_ pid: pid_t) -> Bool { napped.contains { $0.pid == pid } }
@@ -366,7 +400,7 @@ final class NapEngine {
         if refresh {
             lastFreezeRefresh = now
             visible = pidsWithUncoveredWindows()    // a window hidden behind other windows does not count
-            awake = pidsHoldingAssertions()
+            awake = pidsHoldingAssertions().union(pidsProtectedByPictureInPicture())   // never pause an app showing Picture in Picture
             owner = ProcessTable.members(of: napped.filter { helpersMode($0) || hardMode($0) }.map(\.pid))
             let live = Set(owner.keys)
             Self.freezableCache = Self.freezableCache.filter { live.contains($0.key) }   // forget processes that are gone
@@ -418,6 +452,161 @@ final class NapEngine {
         }
     }
 
+    // MARK: Wake on hover (`wakeOnHover` flag in the Dev build, always on in the Public build)
+
+    private(set) var hoverWakes = 0
+    @ObservationIgnored private var mouseMonitor: Any?
+    @ObservationIgnored private var refreezeTimer: Timer?
+    @ObservationIgnored private var lastHoverRun = Date.distantPast
+    @ObservationIgnored private var hoverWindows: [(pid: pid_t, rect: CGRect)] = []   // on-screen windows, front to back
+    @ObservationIgnored private var hoverScan = Date.distantPast
+    @ObservationIgnored private var hoverAwake: [pid_t: Date] = [:]                  // app pid → when the pointer was last over it
+
+    /// A paused app cannot answer the window server. Point at one of its windows and macOS shows the spinning cursor,
+    /// and Activity Monitor shows it red. So while a locked app is paused, the pointer is watched: the moment it is over
+    /// one of the app's windows (or the Dock, or a window of the app becomes visible) the app is woken, long before
+    /// macOS gives up on it, and it is paused again 1.5 s after the pointer leaves.
+    ///
+    /// Nothing polls: the system hands over mouse events only while the pointer moves, a one-shot timer exists only
+    /// while an app is awake because of the pointer, and the regular 3 s check is the safety net. With the pointer
+    /// still, Nappy does no extra work at all.
+    private func updateHoverMonitoring() {
+        let needed = flags.isOn(.wakeOnHover) && flags.isOn(.forceNap)
+            && napped.contains { $0.hardFreeze && !$0.frozen.isEmpty }
+        if needed {
+            if mouseMonitor == nil {
+                mouseMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.mouseMoved, .leftMouseDown, .rightMouseDown]) { [weak self] _ in
+                    MainActor.assumeIsolated { self?.hoverEvent() }
+                }
+            }
+            hoverCheck(Date())                       // safety net, also catches a window that appears without the mouse
+        } else if mouseMonitor != nil || refreezeTimer != nil {
+            if let monitor = mouseMonitor { NSEvent.removeMonitor(monitor) }
+            mouseMonitor = nil
+            refreezeTimer?.invalidate(); refreezeTimer = nil
+            hoverAwake.removeAll()
+        }
+    }
+
+    /// A mouse event: look at most every 40 ms, however fast the pointer moves.
+    private func hoverEvent() {
+        let now = Date()
+        guard now.timeIntervalSince(lastHoverRun) >= 0.04 else { return }
+        hoverCheck(now)
+    }
+
+    private func hoverCheck(_ now: Date) {
+        lastHoverRun = now
+        if now.timeIntervalSince(hoverScan) >= 0.25 { hoverWindows = scanWindowsFrontToBack(); hoverScan = now }
+        // Cocoa's pointer position has its origin at the bottom left; window bounds have it at the top left.
+        let mouse = NSEvent.mouseLocation
+        let screenHeight = NSScreen.screens.first?.frame.height ?? 0
+        let point = CGPoint(x: mouse.x, y: screenHeight - mouse.y)
+        let overPid = hoverWindows.first { $0.rect.contains(point) }?.pid     // the window that is really under the pointer
+        let overDock = isPointerOverDock(mouse)                              // the Dock restores minimized windows and opens apps
+        // Activity Monitor (and its Quit button) talks to the app it quits, so everything is awake while it is in front.
+        let monitorInFront = NSWorkspace.shared.frontmostApplication?.bundleIdentifier == "com.apple.ActivityMonitor"
+        let canBeSeen = pidsWithVisibleWindow(in: hoverWindows)               // a window of theirs can be seen right now
+        var stillAwake = false
+
+        for i in napped.indices where napped[i].hardFreeze && !napped[i].frozen.isEmpty {
+            let app = napped[i]
+            // A window became visible (the Dock restored it, or the window covering it moved away): let the app go,
+            // it will be paused again by the normal check once the window is gone.
+            if canBeSeen.contains(app.pid) || app.frozen.contains(where: { canBeSeen.contains($0) }) {
+                for p in app.frozen { kill(p, SIGCONT) }
+                napped[i].frozen = []; napped[i].isStopped = false
+                napped[i].freezeNote = "window showing"
+                hoverAwake[app.pid] = nil
+                hoverWakes += 1
+                log.add("hover \(app.name): a window became visible, woken")
+                continue
+            }
+            let isOver = overDock || monitorInFront || (overPid.map { $0 == app.pid || app.frozen.contains($0) } ?? false)
+            if isOver {
+                hoverAwake[app.pid] = now
+                if app.isStopped {
+                    for p in app.frozen { kill(p, SIGCONT) }
+                    napped[i].isStopped = false
+                    hoverWakes += 1
+                    log.add("hover \(app.name): \(monitorInFront ? "Activity Monitor is in front" : overDock ? "pointer over the Dock" : "pointer over its window"), woken until it is gone")
+                }
+                stillAwake = true
+            } else if !app.isStopped, let last = hoverAwake[app.pid] {
+                if now.timeIntervalSince(last) >= 1.5 {
+                    for p in napped[i].frozen where isAlive(p) { kill(p, SIGSTOP) }
+                    napped[i].isStopped = true
+                    hoverAwake[app.pid] = nil
+                    log.add("hover \(app.name): pointer left, paused again")
+                } else {
+                    stillAwake = true
+                }
+            }
+        }
+        scheduleRefreeze(needed: stillAwake)
+    }
+
+    /// While an app is awake only because of the pointer, look again in half a second; otherwise no timer at all.
+    private func scheduleRefreeze(needed: Bool) {
+        guard needed else { refreezeTimer?.invalidate(); refreezeTimer = nil; return }
+        guard refreezeTimer == nil else { return }
+        let t = Timer(timeInterval: 0.5, repeats: false) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.refreezeTimer = nil
+                self?.hoverCheck(Date())
+            }
+        }
+        t.tolerance = 0.1
+        RunLoop.main.add(t, forMode: .common)
+        refreezeTimer = t
+    }
+
+    /// The part of the screen the Dock occupies (at least 6 pt, so an auto-hiding Dock is covered too).
+    private func isPointerOverDock(_ p: NSPoint) -> Bool {
+        let orientation = UserDefaults(suiteName: "com.apple.dock")?.string(forKey: "orientation") ?? "bottom"
+        for screen in NSScreen.screens where screen.frame.contains(p) {
+            let f = screen.frame, v = screen.visibleFrame
+            switch orientation {
+            case "left": return p.x <= f.minX + max(v.minX - f.minX, 6)
+            case "right": return p.x >= f.maxX - max(f.maxX - v.maxX, 6)
+            default: return p.y <= f.minY + max(v.minY - f.minY, 6)
+            }
+        }
+        return false
+    }
+
+    /// Owners of a window that can be seen (a few percent of it is not covered by windows in front), from a front-to-back list.
+    private func pidsWithVisibleWindow(in windows: [(pid: pid_t, rect: CGRect)]) -> Set<pid_t> {
+        var result = Set<pid_t>()
+        var inFront: [CGRect] = []
+        for w in windows where w.rect.width >= 60 && w.rect.height >= 60 {
+            var uncovered = 0
+            for ix in 0..<7 {
+                for iy in 0..<5 {
+                    let p = CGPoint(x: w.rect.minX + w.rect.width * (CGFloat(ix) + 0.5) / 7, y: w.rect.minY + w.rect.height * (CGFloat(iy) + 0.5) / 5)
+                    if !inFront.contains(where: { $0.contains(p) }) { uncovered += 1 }
+                }
+            }
+            if uncovered >= 3 { result.insert(w.pid) }
+            inFront.append(w.rect)
+        }
+        return result
+    }
+
+    private func scanWindowsFrontToBack() -> [(pid: pid_t, rect: CGRect)] {
+        guard let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] else { return [] }
+        return list.compactMap { w in
+            // Normal and floating windows only: the Dock and the menu bar own screen-sized windows above 19 that would
+            // otherwise "cover" everything.
+            guard let layer = w[kCGWindowLayer as String] as? Int, (0...19).contains(layer),
+                  (w[kCGWindowAlpha as String] as? Double ?? 1) > 0,
+                  let pid = w[kCGWindowOwnerPID as String] as? Int32,
+                  let dict = w[kCGWindowBounds as String] as? NSDictionary,
+                  let rect = CGRect(dictionaryRepresentation: dict as CFDictionary), rect.width > 2, rect.height > 2 else { return nil }
+            return (pid, rect)
+        }
+    }
+
     /// Lets every frozen helper run again (flag turned off).
     func thawAll() {
         for i in napped.indices where !napped[i].frozen.isEmpty {
@@ -435,6 +624,10 @@ final class NapEngine {
 
     private func appActivated(_ app: NSRunningApplication) {
         backgroundSince[app.processIdentifier] = nil
+        #if !PUBLIC
+        lastFront[app.processIdentifier] = Date()
+        #endif
+        if mouseMonitor != nil { hoverCheck(Date()) }      // e.g. Activity Monitor just came to the front
         if isNapped(app.processIdentifier) { resume(pid: app.processIdentifier, reason: "switched to app") }
     }
 
@@ -537,7 +730,54 @@ final class NapEngine {
     }
 
     /// PIDs that asked macOS to stay awake (playing audio/video, downloads, calls, builds…).
-    private func pidsHoldingAssertions() -> Set<pid_t> {
+    /// Apps to leave awake while a Picture in Picture window is open (`pictureInPicture` flag; the Public build does
+    /// not have it). macOS shows the window through its PIPAgent process, which says *that* a Picture in Picture is
+    /// open but not *which app* it comes from. The source is almost always an app you were just using, so when a
+    /// window appears the apps used in the last 2 minutes are kept awake until the window closes.
+    func pidsProtectedByPictureInPicture() -> Set<pid_t> {
+        #if PUBLIC
+        return []
+        #else
+        guard flags.isOn(.pictureInPicture) else { pipOpen = false; pipProtected = []; return [] }
+        let now = Date()
+        if let front = NSWorkspace.shared.frontmostApplication?.processIdentifier { lastFront[front] = now }
+        let open = isPictureInPictureOpen()
+        if open && !pipOpen {
+            pipProtected = Set(lastFront.filter { now.timeIntervalSince($0.value) <= 120 }.keys)
+            log.add("pip   Picture in Picture opened: \(pipProtected.count) recently used app(s) stay awake")
+        } else if !open && pipOpen {
+            log.add("pip   Picture in Picture closed")
+        }
+        if !open { pipProtected = [] }
+        pipOpen = open
+        return pipProtected
+        #endif
+    }
+
+    #if !PUBLIC
+    @ObservationIgnored private var lastFront: [pid_t: Date] = [:]     // when each app was last in front
+    @ObservationIgnored private var pipOpen = false
+    @ObservationIgnored private var pipProtected: Set<pid_t> = []
+
+    /// True while PIPAgent, macOS's Picture in Picture host, has a window on screen.
+    private func isPictureInPictureOpen() -> Bool {
+        guard let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] else { return false }
+        for w in list {
+            guard (w[kCGWindowLayer as String] as? Int ?? 0) > 0,                 // it floats above normal windows
+                  (w[kCGWindowAlpha as String] as? Double ?? 1) > 0,
+                  let pid = w[kCGWindowOwnerPID as String] as? Int32,
+                  let boundsDict = w[kCGWindowBounds as String] as? NSDictionary,
+                  let rect = CGRect(dictionaryRepresentation: boundsDict as CFDictionary),
+                  rect.width >= 120, rect.height >= 60 else { continue }
+            var name = [CChar](repeating: 0, count: 64)
+            proc_name(pid, &name, 64)
+            if String(cString: name) == "PIPAgent" { return true }               // by process name, so it works in any language
+        }
+        return false
+    }
+    #endif
+
+    func pidsHoldingAssertions() -> Set<pid_t> {
         var ref: Unmanaged<CFDictionary>?
         guard IOPMCopyAssertionsByProcess(&ref) == kIOReturnSuccess, let cf = ref?.takeRetainedValue() else { return [] }
         let blocking: Set<String> = ["PreventUserIdleSystemSleep", "PreventSystemSleep", "NoIdleSleepAssertion",

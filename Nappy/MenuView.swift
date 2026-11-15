@@ -5,6 +5,10 @@ import UniformTypeIdentifiers
 struct MenuView: View {
     /// True when shown inside the floating pinned window instead of the menu bar panel.
     var pinned = false
+    #if !PUBLIC
+    var selfTest = false
+    @State private var headerPositions: [String] = []     // self-test: where the header was inside the window
+    #endif
     private var flags = FeatureFlags.shared
     #if !PUBLIC
     private enum Page { case main, flags }
@@ -17,13 +21,43 @@ struct MenuView: View {
     @State private var napExpanded = true
     @State private var optionsExpanded = false
     @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
+    @State private var showAddApp = false
+    @State private var contentHeight: CGFloat = 520      // pinned window: the height of the content
     #if !PUBLIC
     @State private var logExpanded = false
     private var log = ActivityLog.shared
     #endif
 
     var body: some View {
+        if pinned {
+            // The pinned window is an AppKit window whose height does not move in step with SwiftUI's animation,
+            // and plain content slides around inside it (the header jumped). So the content is laid over a flexible
+            // clear box that takes whatever height the window has, pinned to its top edge; the box's ideal height is
+            // the content's height, which is what sizes the window.
+            Color.clear
+                .frame(minWidth: 350, maxWidth: 350, minHeight: 0, idealHeight: contentHeight, maxHeight: .infinity)
+                .background { PanelBackground() }       // the system's glass (the Dev flags can change it)
+                .overlay(alignment: .top) {
+                    content
+                        .fixedSize(horizontal: false, vertical: true)
+                        .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { contentHeight = $0 }
+                }
+        } else {
+            content
+        }
+    }
+
+    private var content: some View {
         VStack(spacing: 10) {
+            header          // always at the top, outside the page animation
+                #if !PUBLIC
+                .onGeometryChange(for: CGFloat.self, of: { $0.frame(in: .global).minY }) { y in
+                    if selfTest {
+                        let w = NSApp.windows.first { $0.isFloatingPanel && $0.title == "Nappy" }
+                        headerPositions.append("y=\(Int(y.rounded())) windowHeight=\(Int(w?.frame.height ?? 0)) windowTop=\(Int(w?.frame.maxY ?? 0))")
+                    }
+                }
+                #endif
             #if PUBLIC
             mainPage
             #else
@@ -50,11 +84,34 @@ struct MenuView: View {
         }
         .padding()
         .frame(width: 350)
+        #if !PUBLIC
+        .task { await runSelfTest() }
+        #endif
     }
+
+    #if !PUBLIC
+    /// Opens and closes the cards and flips between the two pages every 0.35 s (only with `--pin-test`).
+    private func runSelfTest() async {
+        guard selfTest else { return }
+        try? await Task.sleep(for: .seconds(1.5))
+        for i in 0..<70 {
+            withAnimation(.snappy) {
+                switch i % 3 {
+                case 0: napExpanded.toggle()
+                case 1: let binding = optionsExpandedBinding; binding.wrappedValue.toggle()
+                default: page = (page == .main) ? .flags : .main
+                }
+            }
+            try? await Task.sleep(for: .milliseconds(350))
+        }
+        let w = NSApp.windows.first { $0.isFloatingPanel && $0.title == "Nappy" }
+        let summary = "final: content=\(Int(contentHeight)) window=\(Int(w?.frame.height ?? 0)) layoutRect=\(Int(w?.contentLayoutRect.height ?? 0)) opaque=\(w?.isOpaque ?? true) fullSize=\(w?.styleMask.contains(.fullSizeContentView) ?? false)"
+        try? (headerPositions + [summary]).joined(separator: "\n").write(toFile: "/tmp/nappy-pin-test.txt", atomically: true, encoding: .utf8)
+    }
+    #endif
 
     private var mainPage: some View {
         VStack(spacing: 10) {
-            header
             napCard
             optionsCard
         }
@@ -102,7 +159,7 @@ struct MenuView: View {
                 row("Start Napping After", font: .subheadline) {
                     Picker("", selection: $settings.delaySeconds) {
                         ForEach([5, 10, 30, 60, 120, 300, 600, 900, 1800, 3600], id: \.self) { Text(durationLabel($0)).tag($0) }
-                    }.labelsHidden().fixedSize()
+                    }.labelsHidden().fixedSize().font(.subheadline)
                 }
 
                 Divider()
@@ -111,7 +168,8 @@ struct MenuView: View {
                     Text("No apps are napping right now").font(.caption).foregroundStyle(.secondary)
                 } else {
                     limited(count: engine.napped.count) {
-                        ForEach(engine.napped) { app in
+                        // The app that started napping most recently comes first, so a new one is easy to spot.
+                        ForEach(engine.napped.sorted { $0.since > $1.since }) { app in
                             HStack(spacing: 6) {
                                 appIcon(app.icon)
                                 HStack(spacing: 4) {
@@ -176,27 +234,51 @@ struct MenuView: View {
         }
     }
 
+    /// "Add App…" opens a small list with each open app's icon. (A SwiftUI Menu on macOS does not show app icons,
+    /// so this is a popover with ordinary rows.)
     private var addAppMenu: some View {
-        Menu {
-            let running = NSWorkspace.shared.runningApplications
-                .filter { $0.activationPolicy == .regular && $0.bundleIdentifier != nil
-                    && !settings.isIgnored($0.bundleIdentifier) && $0.bundleIdentifier != Bundle.main.bundleIdentifier }
-                .sorted { ($0.localizedName ?? "").localizedCaseInsensitiveCompare($1.localizedName ?? "") == .orderedAscending }
-            ForEach(running, id: \.processIdentifier) { app in
-                Button {
-                    settings.ignore(bundleID: app.bundleIdentifier!, name: app.localizedName ?? "App")
-                    if app.bundleIdentifier != nil { engine.resume(pid: app.processIdentifier) }
-                } label: {
-                    if let icon = app.icon { Image(nsImage: icon.resized(16)) }
-                    Text(app.localizedName ?? "App")
-                }
-            }
-            Divider()
-            Button("Choose Another App…") { chooseApp() }
-        } label: {
-            Label("Add App…", systemImage: "plus")
+        Button { showAddApp.toggle() } label: {
+            Label("Add App…", systemImage: "plus").font(.subheadline)
         }
-        .menuStyle(.button).fixedSize()
+        .popover(isPresented: $showAddApp, arrowEdge: .bottom) { addAppList }
+    }
+
+    private var addAppList: some View {
+        let running = NSWorkspace.shared.runningApplications
+            .filter { $0.activationPolicy == .regular && $0.bundleIdentifier != nil
+                && !settings.isIgnored($0.bundleIdentifier) && $0.bundleIdentifier != Bundle.main.bundleIdentifier }
+            .sorted { ($0.localizedName ?? "").localizedCaseInsensitiveCompare($1.localizedName ?? "") == .orderedAscending }
+        return VStack(alignment: .leading, spacing: 0) {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 2) {
+                    if running.isEmpty {
+                        Text("No other apps are open").font(.subheadline).foregroundStyle(.secondary).padding(8)
+                    }
+                    ForEach(running, id: \.processIdentifier) { app in
+                        PickerRow {
+                            settings.ignore(bundleID: app.bundleIdentifier!, name: app.localizedName ?? "App")
+                            engine.resume(pid: app.processIdentifier)
+                            showAddApp = false
+                        } content: {
+                            appIcon(app.icon)
+                            Text(app.localizedName ?? "App").font(.subheadline).lineLimit(1)
+                        }
+                    }
+                }
+                .padding(6)
+            }
+            .frame(maxHeight: 280)
+            Divider()
+            PickerRow {
+                showAddApp = false
+                chooseApp()
+            } content: {
+                Image(systemName: "folder").frame(width: Self.glyphSize, height: Self.glyphSize)
+                Text("Choose Another App…").font(.subheadline)
+            }
+            .padding(6)
+        }
+        .frame(width: 240)
     }
 
     private func chooseApp() {
@@ -216,6 +298,21 @@ struct MenuView: View {
     }
 
     // MARK: Options
+
+    /// The apps Nappy sees working right now (the ones "Don't Nap Busy Apps" protects), as icons only;
+    /// pointing at an icon shows the app's name.
+    private var busyAppIcons: some View {
+        TimelineView(.periodic(from: .now, by: 3)) { _ in
+            let apps = engine.busyApps()
+            if !apps.isEmpty {
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: Self.glyphSize), spacing: 6)], alignment: .leading, spacing: 6) {
+                    ForEach(apps, id: \.processIdentifier) { app in
+                        appIcon(app.icon).help(app.localizedName ?? "App")
+                    }
+                }
+            }
+        }
+    }
 
     /// Opening Options closes the Nap card and closing Options opens it again. Closing the Nap card by hand
     /// leaves Options as it is.
@@ -241,6 +338,7 @@ struct MenuView: View {
                           description: "Apps playing sound, in a call or downloading keep running normally.") {
                     Toggle("", isOn: $settings.respectPowerAssertions)
                 }
+                if settings.respectPowerAssertions { busyAppIcons }
 
                 #if !PUBLIC
                 Divider()
@@ -528,6 +626,28 @@ private struct OptionRow<Control: View>: View {
         }
         .frame(maxWidth: .infinity)
         .onGeometryChange(for: CGFloat.self, of: { $0.size.width }) { width = $0 }
+    }
+}
+
+/// A row in a small picker popover: whole row clickable, lightly highlighted under the pointer.
+private struct PickerRow<Content: View>: View {
+    let action: () -> Void
+    @ViewBuilder var content: Content
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 8) {
+                content
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 8).padding(.vertical, 5)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(hovering ? Color.primary.opacity(0.1) : .clear, in: .rect(cornerRadius: 6))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
     }
 }
 

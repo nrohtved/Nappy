@@ -6,6 +6,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NapEngine.shared.start()
         PinnablePanel.install()
         #if !PUBLIC
+        // Self-test for the pinned window: `open -n "Nappy Dev.app" --args --pin-test` pins the menu and opens and
+        // closes the cards by itself for half a minute, so a crash or a jumping header can be checked without clicking.
+        if CommandLine.arguments.contains("--pin-test") {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                PinnablePanel.show(title: "Nappy") { MenuView(pinned: true, selfTest: true) }
+            }
+        }
+        #endif
+        #if !PUBLIC
         Stats.shared.start()
         BatteryStats.shared.start()
         #endif

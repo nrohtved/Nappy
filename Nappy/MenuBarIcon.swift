@@ -7,19 +7,22 @@ enum MenuBarIcon {
         let name = active ? "moon.zzz.fill" : "moon.zzz"
         let config = NSImage.SymbolConfiguration(pointSize: 14, weight: .regular)
         let symbol = NSImage(systemSymbolName: name, accessibilityDescription: "Nappy")!.withSymbolConfiguration(config)!
+        // Drawn into a plain bitmap in both builds: a bare symbol image can come out blank in a menu bar item.
         #if PUBLIC
-        symbol.isTemplate = true
-        return symbol
+        let extra: CGFloat = 0
         #else
-        let size = NSSize(width: symbol.size.width + 3, height: symbol.size.height)
+        let extra: CGFloat = 3
+        #endif
+        let size = NSSize(width: symbol.size.width + extra, height: symbol.size.height)
         let image = NSImage(size: size, flipped: false) { _ in
             symbol.draw(in: NSRect(origin: .zero, size: symbol.size))
+            #if !PUBLIC
             NSColor.black.setFill()
             NSBezierPath(ovalIn: NSRect(x: size.width - 6, y: 0, width: 6, height: 6)).fill()
+            #endif
             return true
         }
         image.isTemplate = true
         return image
-        #endif
     }
 }

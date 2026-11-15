@@ -55,6 +55,32 @@ enum PinnablePanel {
         }
     }
 
+    // The window sizes itself to its content (preferredContentSize). A window keeps its BOTTOM edge when its height
+    // changes, which makes the header jump as the cards open and close, so the top edge is remembered and put
+    // back right after every resize. Only the position changes here, never the size, so layout is not disturbed.
+    private static var topEdge: CGFloat?
+    private static var correcting = false
+    private static var observers: [NSObjectProtocol] = []
+
+    private static func keepTop(of panel: NSPanel) {
+        for name in [NSWindow.didMoveNotification, NSWindow.didResizeNotification] {
+            observers.append(NotificationCenter.default.addObserver(forName: name, object: panel, queue: .main) { note in
+                MainActor.assumeIsolated {
+                    guard !correcting, panel.isVisible else { return }
+                    if note.name == NSWindow.didMoveNotification {
+                        topEdge = panel.frame.maxY                      // you dragged the window: that is the new top
+                    } else if let top = topEdge, abs(panel.frame.maxY - top) > 0.5 {
+                        correcting = true
+                        var frame = panel.frame
+                        frame.origin.y = top - frame.height
+                        panel.setFrame(frame, display: false)
+                        correcting = false
+                    }
+                }
+            })
+        }
+    }
+
     static func close() {
         panel?.close()
     }
@@ -66,7 +92,11 @@ enum PinnablePanel {
             controller.sizingOptions = [.preferredContentSize]
             let p = NSPanel(contentViewController: controller)
             p.title = title
-            p.styleMask = [.titled, .closable, .utilityWindow]
+            // The glass background needs a transparent window whose content reaches under the title bar.
+            p.styleMask = [.titled, .closable, .utilityWindow, .fullSizeContentView]
+            p.titlebarAppearsTransparent = true
+            p.isOpaque = false
+            p.backgroundColor = .clear
             p.isFloatingPanel = true
             p.level = .floating
             p.hidesOnDeactivate = false
@@ -77,6 +107,7 @@ enum PinnablePanel {
                 Task { @MainActor in allowMenuPanel(); onClose?() }
             }
             panel = p
+            keepTop(of: p)
         }
         let menu = NSApp.windows.first { $0.isVisible && isMenuPanel($0) }
         if let panel, !panel.isVisible {
@@ -90,6 +121,7 @@ enum PinnablePanel {
         }
         NSApp.activate(ignoringOtherApps: true)
         panel?.makeKeyAndOrderFront(nil)
+        topEdge = panel?.frame.maxY
         if let menu { hide(menu) }
     }
 
