@@ -111,9 +111,7 @@ final class NapEngine {
     // MARK: Main loop
 
     func tick() {
-        #if !PUBLIC
-        FeatureFlags.shared.showCoffeeAgainIfDue()
-        #endif
+        FeatureFlags.shared.showCoffeeAgainIfDue()      // a closed coffee card comes back after 3 days
         guard settings.napEnabled else {
             resumeAll(reason: "nap turned off"); backgroundSince.removeAll()
             statusText = "Napping is off"

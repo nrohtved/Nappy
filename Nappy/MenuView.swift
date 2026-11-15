@@ -114,13 +114,10 @@ struct MenuView: View {
         VStack(spacing: 10) {
             napCard
             optionsCard
-            #if !PUBLIC
-            if flags.isOn(.coffeeCard), !flags.coffeeDismissed { coffeeCard }     // `coffeeCard` flag
-            #endif
+            if flags.isOn(.coffeeCard), !flags.coffeeDismissed { coffeeCard }
         }
     }
 
-    #if !PUBLIC
     /// An orange card at the bottom of the menu: a coffee cup, a short line of text, the whole card opens the page,
     /// and the x on the right closes it.
     private var coffeeCard: some View {
@@ -160,7 +157,6 @@ struct MenuView: View {
         .clipShape(.rect(cornerRadius: 16))
         .glassEffect(.regular.tint(.orange.opacity(0.4)), in: .rect(cornerRadius: 16))
     }
-    #endif
 
     // MARK: Header
 
@@ -526,16 +522,12 @@ struct MenuView: View {
                 }
             }
             footerButton("info.circle", help: "About Nappy") { AboutWindow.show() }
-            #if PUBLIC
-            footerButton("cup.and.saucer.fill", help: "Buy me a coffee") { NSWorkspace.shared.open(AboutWindow.coffeeURL) }
-            #else
             // With the coffee card on, this button only shows once the card has been closed, and then it shakes too.
             if !flags.isOn(.coffeeCard) || flags.coffeeDismissed {
                 footerButton("cup.and.saucer.fill", help: "Buy me a coffee", shaking: flags.isOn(.coffeeCard)) {
                     NSWorkspace.shared.open(AboutWindow.coffeeURL)
                 }
             }
-            #endif
             Spacer()
             footerButton("power", help: "Quit Nappy") { NSApp.terminate(nil) }
         }
@@ -546,11 +538,7 @@ struct MenuView: View {
         Button(action: action) {
             let icon = Image(systemName: symbol).font(.title3).foregroundStyle(.secondary)
             Group {
-                #if PUBLIC
-                icon
-                #else
                 if shaking { icon.coffeeShake() } else { icon }
-                #endif
             }
             .frame(width: 24, height: 24).contentShape(Rectangle())
         }
@@ -690,7 +678,6 @@ private struct OptionRow<Control: View>: View {
     }
 }
 
-#if !PUBLIC
 /// The shake of the coffee cup: a short wobble every 5 seconds to catch the eye. One definition, used by the cup on the
 /// coffee card and by the coffee button in the bottom bar, so both shake exactly the same. The timeline pauses by
 /// itself while the menu is closed, and the cup stays still when Reduce Motion is on.
@@ -729,8 +716,6 @@ private struct ShakingCup: View {
             .frame(width: 26)
     }
 }
-#endif
-
 /// A row in a small picker popover: whole row clickable, lightly highlighted under the pointer.
 private struct PickerRow<Content: View>: View {
     let action: () -> Void

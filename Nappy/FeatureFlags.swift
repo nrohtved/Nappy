@@ -115,16 +115,32 @@ final class FeatureFlags {
 import SwiftUI
 #else
 import Foundation
+import Observation
 
 /// The public build has no experiments menu: the experiments that were switched on are simply always on,
 /// and the ones that were off were cut.
 enum Flag: String {
-    case pinPanel, groupAudit, freezeHelpers, forceNap, wakeOnHover
+    case pinPanel, groupAudit, freezeHelpers, forceNap, wakeOnHover, coffeeCard
 }
 
+@Observable
 final class FeatureFlags {
     static let shared = FeatureFlags()
     private init() {}
     func isOn(_ flag: Flag) -> Bool { true }
+
+    /// When the coffee card was closed with its x; nil while it is showing. It comes back by itself after 3 days.
+    var coffeeDismissedAt: Date? = UserDefaults.standard.object(forKey: "nappy.coffeeDismissedAt") as? Date {
+        didSet { UserDefaults.standard.set(coffeeDismissedAt, forKey: "nappy.coffeeDismissedAt") }
+    }
+    var coffeeDismissed: Bool { coffeeDismissedAt != nil }
+    static let coffeeReturnsAfter: TimeInterval = 3 * 24 * 60 * 60
+
+    func dismissCoffee() { coffeeDismissedAt = Date() }
+
+    /// Called now and then: a card that was closed more than 3 days ago is shown again.
+    func showCoffeeAgainIfDue() {
+        if let closed = coffeeDismissedAt, Date().timeIntervalSince(closed) >= Self.coffeeReturnsAfter { coffeeDismissedAt = nil }
+    }
 }
 #endif
