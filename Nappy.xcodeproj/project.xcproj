@@ -127,7 +127,7 @@
     "MTL_FAST_MATH": "YES",
     "NAPPY_BUNDLE_ID[config=Debug]": "devplaceholder.$(PROJECT_UNIQUE_VALUE:identifier).$(PRODUCT_NAME:rfc1034identifier)",
     "NAPPY_BUNDLE_ID[config=Release]": "devplaceholder.$(PROJECT_UNIQUE_VALUE:identifier).$(PRODUCT_NAME:rfc1034identifier)",
-    "NAPPY_BUNDLE_ID[config=Public]": "app.nortved.Nappy",
+    "NAPPY_BUNDLE_ID[config=Public]": "app.norhtved.Nappy",
     "ONLY_ACTIVE_ARCH[config=Debug]": "YES",
     "PROJECT_UNIQUE_VALUE": "GPRJU0JM",
     "STRING_CATALOG_GENERATE_SYMBOLS": "YES",

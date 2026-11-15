@@ -1,7 +1,7 @@
 #!/bin/zsh
 # Builds and installs the two versions side by side:
 #   Dev    (Release configuration)  ->  /Applications/Nappy Dev.app   (bundle id devplaceholder.GPRJU0JM.Nappy)
-#   Public (Public configuration)   ->  /Applications/Nappy.app       (bundle id app.nortved.Nappy)
+#   Public (Public configuration)   ->  /Applications/Nappy.app       (bundle id app.norhtved.Nappy)
 # Usage: tools/install.sh [dev|public|both]   (default: both)
 # Run only one of them at a time: both would slow down the same apps.
 set -e
