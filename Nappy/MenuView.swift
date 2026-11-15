@@ -64,12 +64,11 @@ struct MenuView: View {
 
     private var header: some View {
         HStack(spacing: 10) {
-            Image(systemName: "moon.zzz.fill")
-                .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(.white)
-                .frame(width: 30, height: 30)
-                .background(LinearGradient(colors: [.indigo, .purple], startPoint: .topLeading, endPoint: .bottomTrailing),
-                            in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            // The app icon itself (it has a margin around the tile, so the frame is a little larger than the tile).
+            Image(nsImage: NSApp.applicationIconImage)
+                .resizable()
+                .frame(width: 38, height: 38)
+                .padding(.leading, -4)
             VStack(alignment: .leading, spacing: 1) {
                 HStack(spacing: 6) {
                     Text("Nappy").font(.headline)

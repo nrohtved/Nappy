@@ -43,13 +43,7 @@ struct NappyApp: App {
         MenuBarExtra {
             MenuView()
         } label: {
-            let active = settings.napEnabled
-            #if PUBLIC
-            Image(systemName: active ? "moon.zzz.fill" : "moon.zzz")
-            #else
-            // The Dev build has its own icon so it can be told apart from the Public build in the menu bar.
-            Image(systemName: active ? "moon.stars.fill" : "moon.stars")
-            #endif
+            Image(nsImage: MenuBarIcon.image(active: settings.napEnabled))
         }
         .menuBarExtraStyle(.window)
     }
