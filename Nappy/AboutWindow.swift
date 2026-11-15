@@ -5,7 +5,7 @@ import AppKit
 @MainActor
 enum AboutWindow {
     /// Where "Buy me a coffee" goes. Replace with your own page.
-    static let coffeeURL = URL(string: "https://www.buymeacoffee.com")!
+    static let coffeeURL = URL(string: "https://buymeacoffee.com/nrohtved")!
 
     private static var window: NSWindow?
 
