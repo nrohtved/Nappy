@@ -10,7 +10,7 @@ struct FlagDetail: View {
 
     var body: some View {
         switch flag {
-        case .pinPanel, .batchSave, .pictureInPicture, .blurPanel: EmptyView()
+        case .pinPanel, .batchSave, .pictureInPicture, .blurPanel, .coffeeCard: EmptyView()
         case .tintPanel: tintOptions
         case .wakeOnHover: hoverStats
         case .powerStats: power

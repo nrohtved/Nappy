@@ -19,6 +19,7 @@ enum Flag: String, CaseIterable, Identifiable {
     case blurPanel
     case tintPanel
     case wakeOnHover
+    case coffeeCard
 
     var id: String { rawValue }
 
@@ -37,6 +38,7 @@ enum Flag: String, CaseIterable, Identifiable {
         case .blurPanel: "Blurred pinned window"
         case .tintPanel: "See-through pinned window"
         case .wakeOnHover: "Wake paused apps on hover"
+        case .coffeeCard: "Coffee card"
         }
     }
 
@@ -46,6 +48,7 @@ enum Flag: String, CaseIterable, Identifiable {
         case .powerStats: "Compares how hard your background apps work with Nappy off and on, and shows how much is saved."
         case .wakeStats: "Counts how often apps nap and wake up, and how many wake-ups Nappy prevented."
         case .napCooldown: "After you switch back to an app, waits 3 min before napping it again, so it doesn't nap and wake over and over."
+        case .coffeeCard: "Shows an orange Buy me a coffee card at the bottom of the menu. Press it to open the page; close it with the x. It comes back by itself 3 days after you close it, and the coffee button in the bottom bar only shows while the card is closed (it shakes too)."
         case .wakeOnHover: "A paused locked app is woken at once when the pointer is over one of its windows, when the pointer is over the Dock (to open or restore a window from it), when one of its windows becomes visible, or while Activity Monitor is in front (so Quit works). It is paused again 1.5 s after the pointer leaves the window or the Dock. Needs Lock apps to nap."
         case .blurPanel: "The pinned window uses a blurred background (the kind sidebars and popovers use) instead of its standard glass."
         case .tintPanel: "Adds a see-through colour over the pinned window background. Use the slider to set how solid it is."
@@ -65,6 +68,21 @@ final class FeatureFlags {
 
     private(set) var enabled: Set<String>
     @ObservationIgnored private let key = "nappy.flags.v1"
+
+    /// When the coffee card was closed with its x; nil while it is showing. It comes back by itself after 3 days.
+    var coffeeDismissedAt: Date? = (UserDefaults.standard.object(forKey: "nappy.coffeeDismissedAt") as? Date)
+        ?? (UserDefaults.standard.bool(forKey: "nappy.coffeeDismissed") ? Date() : nil) {      // older builds stored a plain yes/no
+        didSet { UserDefaults.standard.set(coffeeDismissedAt, forKey: "nappy.coffeeDismissedAt") }
+    }
+    var coffeeDismissed: Bool { coffeeDismissedAt != nil }
+    static let coffeeReturnsAfter: TimeInterval = 3 * 24 * 60 * 60
+
+    func dismissCoffee() { coffeeDismissedAt = Date() }
+
+    /// Called now and then: a card that was closed more than 3 days ago is shown again.
+    func showCoffeeAgainIfDue() {
+        if let closed = coffeeDismissedAt, Date().timeIntervalSince(closed) >= Self.coffeeReturnsAfter { coffeeDismissedAt = nil }
+    }
 
     /// How solid the `tintPanel` background is (0 = fully see-through, 1 = solid).
     var tintOpacity: Double = (UserDefaults.standard.object(forKey: "nappy.tintOpacity") as? Double) ?? 0.5 {
@@ -86,6 +104,7 @@ final class FeatureFlags {
         if flag == .pinPanel, !on { PinnablePanel.close() }
         if flag == .batchSave, !on { Stats.shared.flush() }
         if flag == .freezeHelpers || flag == .forceNap, !on { NapEngine.shared.thawAll() }
+        if flag == .coffeeCard, on { coffeeDismissedAt = nil }
     }
 
     func binding(_ flag: Flag) -> Binding<Bool> {

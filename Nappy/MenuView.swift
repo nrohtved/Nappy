@@ -114,8 +114,53 @@ struct MenuView: View {
         VStack(spacing: 10) {
             napCard
             optionsCard
+            #if !PUBLIC
+            if flags.isOn(.coffeeCard), !flags.coffeeDismissed { coffeeCard }     // `coffeeCard` flag
+            #endif
         }
     }
+
+    #if !PUBLIC
+    /// An orange card at the bottom of the menu: a coffee cup, a short line of text, the whole card opens the page,
+    /// and the x on the right closes it.
+    private var coffeeCard: some View {
+        HStack(spacing: 8) {
+            Button { NSWorkspace.shared.open(AboutWindow.coffeeURL) } label: {
+                HStack(spacing: 8) {
+                    ShakingCup()
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text("Buy me a coffee").font(.subheadline.weight(.semibold))
+                        Text("If Nappy helps, say thanks with a coffee.").font(.caption).foregroundStyle(.secondary)
+                    }
+                    Spacer(minLength: 0)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            Button { withAnimation(.snappy) { flags.dismissCoffee() } } label: {
+                Image(systemName: "xmark").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                    .frame(width: 20, height: 20).contentShape(Rectangle())
+            }
+            .buttonStyle(.plain).help("Close")
+        }
+        .padding(12)
+        // Three hearts fill the empty right side of the card, each smaller than the one before, only the first one big.
+        // Sizes 92 / 42 / 20 at heights 28 / 6 / 12, opacity 15% / 12% / 7%; the sideways positions are moved left so the group is not heavy on the right.
+        .background(alignment: .trailing) {
+            ZStack {
+                Image(systemName: "heart.fill").font(.system(size: 92)).rotationEffect(.degrees(14)).offset(x: -6, y: 28)
+                    .foregroundStyle(.white.opacity(0.15))
+                Image(systemName: "heart.fill").font(.system(size: 42)).rotationEffect(.degrees(-12)).offset(x: -72, y: 6)
+                    .foregroundStyle(.white.opacity(0.12))
+                Image(systemName: "heart.fill").font(.system(size: 20)).rotationEffect(.degrees(8)).offset(x: -112, y: 12)
+                    .foregroundStyle(.white.opacity(0.07))
+            }
+        }
+        .clipShape(.rect(cornerRadius: 16))
+        .glassEffect(.regular.tint(.orange.opacity(0.4)), in: .rect(cornerRadius: 16))
+    }
+    #endif
 
     // MARK: Header
 
@@ -481,17 +526,33 @@ struct MenuView: View {
                 }
             }
             footerButton("info.circle", help: "About Nappy") { AboutWindow.show() }
+            #if PUBLIC
             footerButton("cup.and.saucer.fill", help: "Buy me a coffee") { NSWorkspace.shared.open(AboutWindow.coffeeURL) }
+            #else
+            // With the coffee card on, this button only shows once the card has been closed, and then it shakes too.
+            if !flags.isOn(.coffeeCard) || flags.coffeeDismissed {
+                footerButton("cup.and.saucer.fill", help: "Buy me a coffee", shaking: flags.isOn(.coffeeCard)) {
+                    NSWorkspace.shared.open(AboutWindow.coffeeURL)
+                }
+            }
+            #endif
             Spacer()
             footerButton("power", help: "Quit Nappy") { NSApp.terminate(nil) }
         }
         .padding(.horizontal, 6)
     }
 
-    private func footerButton(_ symbol: String, help: String, action: @escaping () -> Void) -> some View {
+    private func footerButton(_ symbol: String, help: String, shaking: Bool = false, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            Image(systemName: symbol).font(.title3).foregroundStyle(.secondary)
-                .frame(width: 24, height: 24).contentShape(Rectangle())
+            let icon = Image(systemName: symbol).font(.title3).foregroundStyle(.secondary)
+            Group {
+                #if PUBLIC
+                icon
+                #else
+                if shaking { icon.coffeeShake() } else { icon }
+                #endif
+            }
+            .frame(width: 24, height: 24).contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .help(help)
@@ -628,6 +689,47 @@ private struct OptionRow<Control: View>: View {
         .onGeometryChange(for: CGFloat.self, of: { $0.size.width }) { width = $0 }
     }
 }
+
+#if !PUBLIC
+/// The shake of the coffee cup: a short wobble every 5 seconds to catch the eye. One definition, used by the cup on the
+/// coffee card and by the coffee button in the bottom bar, so both shake exactly the same. The timeline pauses by
+/// itself while the menu is closed, and the cup stays still when Reduce Motion is on.
+private struct CoffeeShake: ViewModifier {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func body(content: Content) -> some View {
+        TimelineView(.periodic(from: .now, by: 5)) { context in
+            if reduceMotion {
+                content
+            } else {
+                content.keyframeAnimator(initialValue: 0.0, trigger: Int(context.date.timeIntervalSinceReferenceDate / 5)) { view, angle in
+                    view.rotationEffect(.degrees(angle), anchor: .bottom)
+                } keyframes: { _ in
+                    KeyframeTrack {
+                        CubicKeyframe(12, duration: 0.08)
+                        CubicKeyframe(-10, duration: 0.10)
+                        CubicKeyframe(8, duration: 0.10)
+                        CubicKeyframe(-5, duration: 0.10)
+                        CubicKeyframe(0, duration: 0.10)
+                    }
+                }
+            }
+        }
+    }
+}
+
+private extension View {
+    func coffeeShake() -> some View { modifier(CoffeeShake()) }
+}
+
+private struct ShakingCup: View {
+    var body: some View {
+        Image(systemName: "cup.and.saucer.fill").font(.system(size: 18)).foregroundStyle(.orange)
+            .coffeeShake()
+            .frame(width: 26)
+    }
+}
+#endif
 
 /// A row in a small picker popover: whole row clickable, lightly highlighted under the pointer.
 private struct PickerRow<Content: View>: View {
