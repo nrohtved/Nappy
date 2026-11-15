@@ -11,6 +11,8 @@ struct NappedApp: Identifiable {
     var pids: [pid_t]   // the app plus its helper/child processes
     let since: Date
     var electron = false
+    var hardFreeze = false           // `forceNap`: the whole app is paused, not just its helpers
+    var freezeNote = ""              // why a locked app is not paused yet: "window showing", "keeping Mac awake"
     var frozen: Set<pid_t> = []      // renderer/GPU helpers under `freezeHelpers`
     var isStopped = false
     var nextThaw = Date.distantFuture
@@ -39,13 +41,19 @@ final class NapEngine {
     @ObservationIgnored private var skipReason: [pid_t: String] = [:]
     @ObservationIgnored private let log = ActivityLog.shared
     @ObservationIgnored private let flags = FeatureFlags.shared
+    #if !PUBLIC
     @ObservationIgnored private var lastWake: [pid_t: Date] = [:]
+    #endif
     @ObservationIgnored private var lastAudit = Date.distantPast
+    #if !PUBLIC
     private static let cooldown: TimeInterval = 180
+    #endif
     private static let freezeFor: TimeInterval = 55
     private static let thawFor: TimeInterval = 5
     @ObservationIgnored private var lastFreezeRefresh = Date.distantPast
     private(set) var freezeCount = 0
+    /// Apps locked to nap (`forceNap` flag): bundle id → name. Kept across launches.
+    private(set) var forced: [String: String] = (UserDefaults.standard.dictionary(forKey: "nappy.forcedNap.v1") as? [String: String]) ?? [:]
     // Reading properties of a fresh NSRunningApplication costs a LaunchServices round trip each, so the list of
     // regular apps is kept and only rebuilt when an app launches or quits (and once a minute as a safety net).
     @ObservationIgnored private var regularApps: [NSRunningApplication] = []
@@ -100,7 +108,7 @@ final class NapEngine {
     func tick() {
         guard settings.isOn, settings.napEnabled else {
             resumeAll(reason: settings.isOn ? "nap turned off" : "Nappy turned off"); backgroundSince.removeAll()
-            statusText = settings.isOn ? "Nap is off" : "Paused"
+            statusText = settings.isOn ? "Napping is off" : "Nappy is off"
             return
         }
         let now = Date()
@@ -138,6 +146,7 @@ final class NapEngine {
             backgroundSince[pid] = since
             let waited = now.timeIntervalSince(since)
             guard waited >= delay else { continue }
+            #if !PUBLIC
             if flags.isOn(.napCooldown), let woke = lastWake[pid], now.timeIntervalSince(woke) < 600, waited < Self.cooldown {
                 if skipReason[pid] != "cooldown" {
                     skipReason[pid] = "cooldown"
@@ -146,6 +155,7 @@ final class NapEngine {
                 }
                 continue
             }
+            #endif
             if visible().contains(pid) || awake().contains(pid) {
                 let reason = visible().contains(pid) ? "has a visible window" : "keeping Mac awake (power assertion)"
                 if skipReason[pid] != reason {
@@ -160,14 +170,37 @@ final class NapEngine {
         backgroundSince = backgroundSince.filter { alive.contains($0.key) }
         skipReason = skipReason.filter { alive.contains($0.key) }
         napped.removeAll { !alive.contains($0.pid) }
+        #if !PUBLIC
         lastWake = lastWake.filter { alive.contains($0.key) }
+        #endif
         auditNapped(now)
         maintainFrozen(now)
         persistPIDs()
-        statusText = napped.isEmpty ? "Watching" : "\(napped.count) napping"
+        statusText = napped.isEmpty ? "Watching your apps" : "\(napped.count) app\(napped.count == 1 ? "" : "s") napping"
     }
 
     // MARK: Suspend / resume
+
+    func isForced(bundleID: String?) -> Bool {
+        guard flags.isOn(.forceNap), let bundleID else { return false }
+        return forced[bundleID] != nil
+    }
+
+    func setForced(bundleID: String, name: String, on: Bool) {
+        if on { forced[bundleID] = name } else { forced[bundleID] = nil }
+        UserDefaults.standard.set(forced, forKey: "nappy.forcedNap.v1")
+        log.add("force \(name): \(on ? "locked, will be paused completely while it naps" : "released")")
+        // Apply it to the app if it is napping right now.
+        for i in napped.indices where napped[i].bundleID == bundleID {
+            if on {
+                napped[i].hardFreeze = true
+                lastFreezeRefresh = .distantPast        // paused on the next tick, after the window and awake checks
+            } else {
+                for p in napped[i].frozen { kill(p, SIGCONT) }
+                napped[i].frozen = []; napped[i].isStopped = false; napped[i].hardFreeze = false
+            }
+        }
+    }
 
     func isNapped(_ pid: pid_t) -> Bool { napped.contains { $0.pid == pid } }
 
@@ -196,12 +229,20 @@ final class NapEngine {
                                 name: app.localizedName ?? "App", icon: app.icon, pids: group, since: Date(), preBG: preBG))
         if !preBG.isEmpty {
             log.add("audit \(name): \(preBG.count) of \(group.count) processes were already background — not touched, not restored")
+            #if !PUBLIC
             Stats.shared.recordAudit { $0.leftAlone += preBG.count }
+            #endif
         }
+        #if !PUBLIC
         Stats.shared.recordNap()
+        #endif
         if flags.isOn(.freezeHelpers), isElectron(app), let i = napped.indices.last {
             napped[i].electron = true
             lastFreezeRefresh = .distantPast   // freeze on the next tick, after the visible-window and assertion checks
+        }
+        if isForced(bundleID: app.bundleIdentifier), let i = napped.indices.last {
+            napped[i].hardFreeze = true
+            lastFreezeRefresh = .distantPast
         }
         persistPIDs()
     }
@@ -209,9 +250,13 @@ final class NapEngine {
     func resume(pid: pid_t, reason: String = "restored manually") {
         if let entry = napped.first(where: { $0.pid == pid }) {
             restore(entry)
+            #if !PUBLIC
             lastWake[pid] = Date()
+            #endif
             log.add("wake  \(entry.name) (pid \(pid)) — \(reason), napped \(Int(Date().timeIntervalSince(entry.since))) s")
+            #if !PUBLIC
             Stats.shared.recordWake(app: entry.name, reason: reason, napped: Date().timeIntervalSince(entry.since))
+            #endif
         }
         napped.removeAll { $0.pid == pid }
         backgroundSince[pid] = nil
@@ -222,7 +267,9 @@ final class NapEngine {
         for app in napped {
             restore(app)
             log.add("wake  \(app.name) (pid \(app.pid)) — \(reason)")
+            #if !PUBLIC
             Stats.shared.recordWake(app: app.name, reason: reason, napped: Date().timeIntervalSince(app.since))
+            #endif
         }
         if !napped.isEmpty { napped.removeAll() }
         persistPIDs()
@@ -239,7 +286,9 @@ final class NapEngine {
         if !stuck.isEmpty { setBackground(stuck, false); stuck = stuck.filter { isAlive($0) && isBackground($0) } }
         if !stuck.isEmpty {
             log.add("audit \(entry.name): \(stuck.count) of \(targets.count) processes still throttled after restore (pids \(stuck.prefix(5).map(String.init).joined(separator: ", ")))")
+            #if !PUBLIC
             Stats.shared.recordAudit { $0.restoreStuck += stuck.count }
+            #endif
         }
     }
 
@@ -247,9 +296,11 @@ final class NapEngine {
     private func auditNapped(_ now: Date) {
         guard flags.isOn(.groupAudit), !napped.isEmpty, now.timeIntervalSince(lastAudit) >= 30 else { return }
         lastAudit = now
-        let owner = Stats.members(of: napped.map(\.pid))
+        let owner = ProcessTable.members(of: napped.map(\.pid))
+        #if !PUBLIC
         let batch = flags.isOn(.batchSave)
         var total = AuditCounts()
+        #endif
         for i in napped.indices {
             let app = napped[i]
             let current = Set(owner.filter { $0.value == app.pid }.keys)
@@ -259,14 +310,18 @@ final class NapEngine {
             if !joined.isEmpty { setBackground(Array(joined), true) }
             if !drifted.isEmpty { setBackground(Array(drifted), true) }
             napped[i].pids = Array(known.union(joined)).filter(isAlive)
+            #if !PUBLIC
             let checked = known.count
             if batch { total.checks += checked; total.joined += joined.count; total.drifted += drifted.count }
             else { Stats.shared.recordAudit { $0.checks += checked; $0.joined += joined.count; $0.drifted += drifted.count } }
+            #endif
             if !joined.isEmpty || !drifted.isEmpty {
                 log.add("audit \(app.name): +\(joined.count) helpers joined late, \(drifted.count) throttles re-applied")
             }
         }
+        #if !PUBLIC
         if batch { Stats.shared.recordAudit { $0.checks += total.checks; $0.joined += total.joined; $0.drifted += total.drifted } }
+        #endif
     }
 
     /// getpriority() doesn't follow the background flag reliably; the task's scheduling priority does (4 = background, 31–46 = normal).
@@ -301,29 +356,38 @@ final class NapEngine {
     /// Every tick: run the 55 s stopped / 5 s running cycle. Every 15 s: freeze helpers that joined late, and
     /// release everything if the app got a visible window or started keeping the Mac awake.
     private func maintainFrozen(_ now: Date) {
-        guard flags.isOn(.freezeHelpers), napped.contains(where: \.electron) else { return }
+        // Two modes share this code: Electron helpers (`freezeHelpers`: renderer/GPU only, 55 s stopped / 5 s running)
+        // and locked apps (`forceNap`: the whole app stays stopped, so it cannot wake itself).
+        func helpersMode(_ a: NappedApp) -> Bool { a.electron && flags.isOn(.freezeHelpers) }
+        func hardMode(_ a: NappedApp) -> Bool { a.hardFreeze && flags.isOn(.forceNap) }
+        guard napped.contains(where: { helpersMode($0) || hardMode($0) }) else { return }
         let refresh = now.timeIntervalSince(lastFreezeRefresh) >= 15
         var visible = Set<pid_t>(), awake = Set<pid_t>(), owner: [pid_t: pid_t] = [:]
         if refresh {
             lastFreezeRefresh = now
-            visible = pidsWithVisibleWindows()
+            visible = pidsWithUncoveredWindows()    // a window hidden behind other windows does not count
             awake = pidsHoldingAssertions()
-            owner = Stats.members(of: napped.filter(\.electron).map(\.pid))
+            owner = ProcessTable.members(of: napped.filter { helpersMode($0) || hardMode($0) }.map(\.pid))
             let live = Set(owner.keys)
             Self.freezableCache = Self.freezableCache.filter { live.contains($0.key) }   // forget processes that are gone
         }
-        for i in napped.indices where napped[i].electron {
+        for i in napped.indices where helpersMode(napped[i]) || hardMode(napped[i]) {
+            let hard = hardMode(napped[i])
             if refresh {
                 let group = Set(napped[i].pids).union(owner.filter { $0.value == napped[i].pid }.keys)
                 let blocked = visible.contains(napped[i].pid) || !group.isDisjoint(with: awake)
+                napped[i].freezeNote = !blocked ? "" : (visible.contains(napped[i].pid) ? "window showing" : "keeping Mac awake")
                 if blocked {
                     if !napped[i].frozen.isEmpty {
                         for p in napped[i].frozen { kill(p, SIGCONT) }
-                        log.add("freeze \(napped[i].name): released \(napped[i].frozen.count) helpers (window visible or keeping Mac awake)")
+                        log.add("freeze \(napped[i].name): released \(napped[i].frozen.count) processes (window visible or keeping Mac awake)")
                         napped[i].frozen = []; napped[i].isStopped = false
                     }
                 } else {
-                    let fresh = group.filter { $0 > 1 && $0 != napped[i].pid && !napped[i].frozen.contains($0) && Self.isFreezable($0) }
+                    let fresh = group.filter {
+                        $0 > 1 && $0 != selfPID && !napped[i].frozen.contains($0)
+                            && (hard || ($0 != napped[i].pid && Self.isFreezable($0)))
+                    }
                     if !fresh.isEmpty {
                         let stopNow = napped[i].frozen.isEmpty || napped[i].isStopped
                         for p in fresh {
@@ -334,7 +398,8 @@ final class NapEngine {
                             napped[i].isStopped = stopNow
                             napped[i].nextThaw = now.addingTimeInterval(Self.freezeFor)
                             freezeCount += 1
-                            log.add("freeze \(napped[i].name): stopped \(fresh.count) renderer/GPU helpers")
+                            log.add(hard ? "freeze \(napped[i].name): paused the whole app (\(fresh.count) processes), only Nappy can wake it"
+                                         : "freeze \(napped[i].name): stopped \(fresh.count) renderer/GPU helpers")
                         }
                         napped[i].pids = Array(Set(napped[i].pids).union(fresh))
                     }
@@ -342,6 +407,7 @@ final class NapEngine {
             }
             guard !napped[i].frozen.isEmpty else { continue }
             napped[i].frozen = napped[i].frozen.filter(isAlive)
+            if hard { continue }                       // a locked app is never let out for a moment
             if napped[i].isStopped, now >= napped[i].nextThaw {
                 for p in napped[i].frozen { kill(p, SIGCONT) }
                 napped[i].isStopped = false; napped[i].thawUntil = now.addingTimeInterval(Self.thawFor)
@@ -404,7 +470,7 @@ final class NapEngine {
                 queue.append(kid)
             }
         }
-        for (other, r) in Stats.responsibleMap() where other != pid && r == pid { result.insert(other) }
+        for (other, r) in ProcessTable.responsibleMap() where other != pid && r == pid { result.insert(other) }
         result.remove(pid)
         return Array(result)
     }
@@ -440,6 +506,32 @@ final class NapEngine {
                   (w[kCGWindowAlpha as String] as? Double ?? 1) > 0,
                   let pid = w[kCGWindowOwnerPID as String] as? Int32 else { continue }
             result.insert(pid)
+        }
+        return result
+    }
+
+    /// PIDs with a window that can really be seen: at least a few percent of it is not covered by windows in front of it.
+    /// (`pidsWithVisibleWindows` also counts windows hidden behind others, which is too strict for pausing an app.)
+    private func pidsWithUncoveredWindows() -> Set<pid_t> {
+        guard let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] else { return [] }
+        var result = Set<pid_t>()
+        var inFront: [CGRect] = []                       // the list is ordered front to back
+        for w in list {
+            guard (w[kCGWindowLayer as String] as? Int) == 0,
+                  (w[kCGWindowAlpha as String] as? Double ?? 1) > 0,
+                  let pid = w[kCGWindowOwnerPID as String] as? Int32,
+                  let boundsDict = w[kCGWindowBounds as String] as? NSDictionary,
+                  let rect = CGRect(dictionaryRepresentation: boundsDict as CFDictionary),
+                  rect.width >= 60, rect.height >= 60 else { continue }
+            var uncovered = 0
+            for ix in 0..<7 {
+                for iy in 0..<5 {
+                    let p = CGPoint(x: rect.minX + rect.width * (CGFloat(ix) + 0.5) / 7, y: rect.minY + rect.height * (CGFloat(iy) + 0.5) / 5)
+                    if !inFront.contains(where: { $0.contains(p) }) { uncovered += 1 }
+                }
+            }
+            if uncovered >= 3 { result.insert(pid) }
+            inFront.append(rect)
         }
         return result
     }

@@ -1,3 +1,4 @@
+#if !PUBLIC
 import Foundation
 import AppKit
 import Observation
@@ -54,3 +55,12 @@ final class ActivityLog {
         }
     }
 }
+#else
+import Foundation
+
+/// The public build keeps no log: every call is a no-op and its argument is never even built.
+final class ActivityLog {
+    static let shared = ActivityLog()
+    func add(_ line: @autoclosure () -> String) {}
+}
+#endif

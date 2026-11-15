@@ -3,6 +3,7 @@
   "configurations": [
     "Debug",
     "Release",
+    "Public",
   ],
   "localizations": {
     "development": "en",
@@ -37,23 +38,14 @@
         "DEVELOPMENT_TEAM": "VU3L6PN9W4",
         "ENABLE_APP_SANDBOX": "NO",
         "ENABLE_HARDENED_RUNTIME": "YES",
-        "INFOPLIST_KEY_LSUIElement": "YES",
-        "INFOPLIST_KEY_LSApplicationCategoryType": "public.app-category.utilities",
         "ENABLE_PREVIEWS": "YES",
-                "GENERATE_INFOPLIST_FILE": "YES",
-
-
-
-
-
-
-
-
-
+        "GENERATE_INFOPLIST_FILE": "YES",
+        "INFOPLIST_KEY_LSApplicationCategoryType": "public.app-category.utilities",
+        "INFOPLIST_KEY_LSUIElement": "YES",
         "LD_RUNPATH_SEARCH_PATHS": "@executable_path/Frameworks",
         "LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]": "@executable_path/../Frameworks",
-        "MARKETING_VERSION": "1.0",
-        "PRODUCT_BUNDLE_IDENTIFIER": "devplaceholder.$(PROJECT_UNIQUE_VALUE:identifier).$(PRODUCT_NAME:rfc1034identifier)",
+        "MARKETING_VERSION": "0.1.0",
+        "PRODUCT_BUNDLE_IDENTIFIER": "$(NAPPY_BUNDLE_ID)",
         "PRODUCT_NAME": "$(TARGET_NAME)",
         "REGISTER_APP_GROUPS": "YES",
         "SDKROOT": "macosx",
@@ -64,7 +56,7 @@
         "SWIFT_EMIT_LOC_STRINGS": "YES",
         "SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY": "YES",
         "SWIFT_VERSION": "5.0",
-              },
+      },
     },
   ],
   "build-settings": {
@@ -102,8 +94,10 @@
     "DEAD_CODE_STRIPPING": "YES",
     "DEBUG_INFORMATION_FORMAT[config=Debug]": "dwarf",
     "DEBUG_INFORMATION_FORMAT[config=Release]": "dwarf-with-dsym",
+    "DEBUG_INFORMATION_FORMAT[config=Public]": "dwarf-with-dsym",
     "DRIVERKIT_DEPLOYMENT_TARGET": "27.2",
     "ENABLE_NS_ASSERTIONS[config=Release]": "NO",
+    "ENABLE_NS_ASSERTIONS[config=Public]": "NO",
     "ENABLE_STRICT_OBJC_MSGSEND": "YES",
     "ENABLE_TESTABILITY[config=Debug]": "YES",
     "ENABLE_USER_SCRIPT_SANDBOXING": "YES",
@@ -126,12 +120,18 @@
     "MACOSX_DEPLOYMENT_TARGET": "27.2",
     "MTL_ENABLE_DEBUG_INFO[config=Debug]": "INCLUDE_SOURCE",
     "MTL_ENABLE_DEBUG_INFO[config=Release]": "NO",
+    "MTL_ENABLE_DEBUG_INFO[config=Public]": "NO",
     "MTL_FAST_MATH": "YES",
+    "NAPPY_BUNDLE_ID[config=Debug]": "devplaceholder.$(PROJECT_UNIQUE_VALUE:identifier).$(PRODUCT_NAME:rfc1034identifier)",
+    "NAPPY_BUNDLE_ID[config=Release]": "devplaceholder.$(PROJECT_UNIQUE_VALUE:identifier).$(PRODUCT_NAME:rfc1034identifier)",
+    "NAPPY_BUNDLE_ID[config=Public]": "app.nortved.Nappy",
     "ONLY_ACTIVE_ARCH[config=Debug]": "YES",
     "PROJECT_UNIQUE_VALUE": "GPRJU0JM",
     "STRING_CATALOG_GENERATE_SYMBOLS": "YES",
     "SWIFT_ACTIVE_COMPILATION_CONDITIONS[config=Debug]": "DEBUG $(inherited)",
     "SWIFT_COMPILATION_MODE[config=Release]": "wholemodule",
+    "SWIFT_COMPILATION_MODE[config=Public]": "wholemodule",
+    "SWIFT_ACTIVE_COMPILATION_CONDITIONS[config=Public]": "PUBLIC $(inherited)",
     "SWIFT_OPTIMIZATION_LEVEL[config=Debug]": "-Onone",
     "TVOS_DEPLOYMENT_TARGET": "27.2",
     "WATCHOS_DEPLOYMENT_TARGET": "27.2",

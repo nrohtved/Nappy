@@ -1,3 +1,4 @@
+#if !PUBLIC
 import SwiftUI
 
 /// What a flag shows under its switch once it is on.
@@ -14,6 +15,8 @@ struct FlagDetail: View {
         case .wakeStats: wake
         case .napCooldown: cooldown
         case .freezeHelpers: freeze
+        case .batteryStats: battery
+        case .forceNap: lockedApps
         case .groupAudit: auditView
         }
     }
@@ -22,17 +25,17 @@ struct FlagDetail: View {
 
     private var power: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("Background apps only, Nappy Off vs On").font(.caption2).foregroundStyle(.secondary)
+            Text("Apps in the background, with Nappy off vs on").font(.caption2).foregroundStyle(.secondary)
             header
-            line("CPU", off: "\(fmt(stats.off.cpuPercent))%", on: "\(fmt(stats.on.cpuPercent))%")
-            line("Cycles", off: "\(fmt(stats.off.gigacyclesPerSec)) G/s", on: "\(fmt(stats.on.gigacyclesPerSec)) G/s")
+            line("Processor use", off: "\(fmt(stats.off.cpuPercent))%", on: "\(fmt(stats.on.cpuPercent))%")
+            line("Processor work", off: "\(fmt(stats.off.gigacyclesPerSec)) G/s", on: "\(fmt(stats.on.gigacyclesPerSec)) G/s")
             Divider()
             if stats.hasBaseline, let cpu = stats.saved(\.cpuPercent) {
                 HStack {
                     Text("Saved").font(.callout.weight(.semibold))
                     Spacer()
-                    Text(pct(cpu) + " CPU").font(.callout.weight(.semibold)).foregroundStyle(cpu > 0 ? .green : .orange)
-                    if let cyc = stats.saved(\.gigacyclesPerSec) { Text("· " + pct(cyc) + " cycles").font(.caption).foregroundStyle(.secondary) }
+                    Text(pct(cpu) + " less processor use").font(.callout.weight(.semibold)).foregroundStyle(cpu > 0 ? .green : .orange)
+                    if let cyc = stats.saved(\.gigacyclesPerSec) { Text("· " + pct(cyc) + " less work").font(.caption).foregroundStyle(.secondary) }
                 }
             } else {
                 Text(missing).font(.caption).foregroundStyle(.secondary)
@@ -48,7 +51,7 @@ struct FlagDetail: View {
         let rows = topRows
         if !rows.isEmpty {
             Divider()
-            Text("Top apps by CPU").font(.caption2).foregroundStyle(.secondary)
+            Text("Busiest apps").font(.caption2).foregroundStyle(.secondary)
             ForEach(rows, id: \.key) { row in
                 let name = row.key, app = row.value
                 HStack(spacing: 4) {
@@ -75,8 +78,8 @@ struct FlagDetail: View {
     private var missing: String {
         let need = { (b: StatBucket) in max(0, Stats.minSeconds - b.seconds) }
         let parts = [(need(stats.off), "Off"), (need(stats.on), "On")].filter { $0.0 > 0 }
-            .map { "\(Int($0.0.rounded(.up))) s more with Nappy \($0.1)" }
-        return "Collecting — " + parts.joined(separator: " and ") + ". Switch Nappy Off for a couple of minutes to get a baseline."
+            .map { "\(Int($0.0.rounded(.up))) more seconds with Nappy \($0.1.lowercased())" }
+        return "Still measuring: needs " + parts.joined(separator: " and ") + ". Turn Nappy off for a few minutes to get something to compare with."
     }
 
     // MARK: Wake
@@ -84,21 +87,21 @@ struct FlagDetail: View {
     private var wake: some View {
         let e = stats.events
         return VStack(alignment: .leading, spacing: 6) {
-            statLine("Naps started", "\(e.naps)")
-            statLine("Wakes by Nappy", "\(e.wakes)")
-            Text("\(e.wakesByActivation) switched to app · \(e.wakesManual) manual · \(e.wakesOther) other")
+            statLine("Times napped", "\(e.naps)")
+            statLine("Times woken up", "\(e.wakes)")
+            Text("\(e.wakesByActivation) you switched to the app · \(e.wakesManual) you pressed wake up · \(e.wakesOther) other reasons")
                 .font(.caption2).foregroundStyle(.secondary)
-            if e.wakes > 0 { statLine("Avg nap length", duration(e.napSeconds / Double(e.wakes))) }
+            if e.wakes > 0 { statLine("Average nap", duration(e.napSeconds / Double(e.wakes))) }
             let top = e.wakesByApp.sorted { $0.value > $1.value }.prefix(3)
             if !top.isEmpty {
-                Text("Most woken: " + top.map { "\($0.key) \($0.value)" }.joined(separator: ", "))
+                Text("Woken up most: " + top.map { "\($0.key) \($0.value)" }.joined(separator: ", "))
                     .font(.caption2).foregroundStyle(.secondary)
             }
             Divider()
-            line("CPU wakeups/s", off: fmt(stats.off.wakeupsPerSec, 0), on: fmt(stats.on.wakeupsPerSec, 0), showHeader: true)
+            line("Processor wake-ups per second", off: fmt(stats.off.wakeupsPerSec, 0), on: fmt(stats.on.wakeupsPerSec, 0), showHeader: true)
             if stats.hasBaseline {
                 HStack {
-                    Text("Wakeups limited").font(.callout.weight(.semibold))
+                    Text("Wake-ups prevented").font(.callout.weight(.semibold))
                     Spacer()
                     Text("≈ " + compact(stats.wakeupsLimited)).font(.callout.weight(.semibold)).foregroundStyle(.green)
                 }
@@ -110,23 +113,95 @@ struct FlagDetail: View {
         .padding(.leading, 4)
     }
 
+    // MARK: Battery
+
+    private var battery: some View {
+        let b = BatteryStats.shared
+        return VStack(alignment: .leading, spacing: 6) {
+            if !b.available {
+                Text("This Mac doesn't report battery power, so it can't be measured.").font(.caption).foregroundStyle(.secondary)
+            } else {
+                if let now = b.now {
+                    statLine("Right now", "\(now.watts.map { String(format: "%.1f W", $0) } ?? "–") · \(now.percent.map { "\($0)%" } ?? "–") · \(now.pluggedIn ? "plugged in" : "on battery")")
+                }
+                headerView(b.off.seconds, b.on.seconds)
+                line("Whole Mac power", off: b.off.seconds > 0 ? watts(b.off.watts) : "–", on: b.on.seconds > 0 ? watts(b.on.watts) : "–")
+                line("Battery life (full charge)", off: b.hours(b.off).map(hours) ?? "–", on: b.hours(b.on).map(hours) ?? "–")
+                Divider()
+                if let saved = b.saved {
+                    HStack {
+                        Text("Saved").font(.callout.weight(.semibold))
+                        Spacer()
+                        Text(pct(saved) + " less power").font(.callout.weight(.semibold)).foregroundStyle(saved > 0 ? .green : .orange)
+                        if let a = b.hours(b.off), let c = b.hours(b.on) {
+                            Text("· \(c >= a ? "+" : "−")\(Int(abs(c - a) * 60)) min").font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
+                } else {
+                    let need = { (p: PowerBucket) in max(0, BatteryStats.minSeconds - p.seconds) }
+                    let parts = [(need(b.off), "Off"), (need(b.on), "On")].filter { $0.0 > 0 }
+                        .map { "\(Int(($0.0 / 60).rounded(.up))) more min with Nappy \($0.1.lowercased())" }
+                    Text("Still measuring: needs " + parts.joined(separator: " and ") + ". The battery updates about once a minute.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                Text("This is the power of the whole Mac. Screen brightness and what you are doing change it too, so compare over a long time.")
+                    .font(.caption2).foregroundStyle(.secondary)
+                HStack { Spacer(); Button("Reset") { b.reset() }.controlSize(.mini) }
+            }
+        }
+        .padding(.leading, 4)
+    }
+
+    private func watts(_ w: Double) -> String { String(format: "%.2f W", w) }
+    private func hours(_ h: Double) -> String { String(format: "%.1f h", h) }
+
+    // MARK: Locked apps
+
+    private var lockedApps: some View {
+        let engine = NapEngine.shared
+        let locked = engine.forced.sorted { $0.value.localizedCaseInsensitiveCompare($1.value) == .orderedAscending }
+        let paused = engine.napped.filter { $0.hardFreeze && !$0.frozen.isEmpty }
+        return VStack(alignment: .leading, spacing: 6) {
+            statLine("Locked apps", "\(locked.count)")
+            statLine("Paused completely now", "\(paused.count)")
+            ForEach(locked, id: \.key) { id, name in
+                HStack {
+                    Text(name).font(.caption)
+                    Spacer()
+                    Text(lockStatus(id, paused: paused)).font(.caption2).foregroundStyle(.secondary)
+                    Button("Release") { engine.setForced(bundleID: id, name: name, on: false) }.controlSize(.mini)
+                }
+            }
+            Text("Use the lock button next to an app in Napping Now. A locked app that is napping with no window showing, and nothing keeping the Mac awake, is stopped completely, so it can't wake itself (no timers, no background work, no notifications). It wakes the moment you switch to it or press wake up, and everything is let go if Nappy quits.")
+                .font(.caption2).foregroundStyle(.secondary)
+        }
+        .padding(.leading, 4)
+    }
+
+    /// Why a locked app is, or is not, paused right now.
+    private func lockStatus(_ id: String, paused: [NappedApp]) -> String {
+        guard let entry = NapEngine.shared.napped.first(where: { $0.bundleID == id }) else { return "not napping" }
+        if !entry.frozen.isEmpty { return "paused" }
+        return entry.freezeNote.isEmpty ? "starting" : "waiting: \(entry.freezeNote)"
+    }
+
     // MARK: Freeze
 
     private var freeze: some View {
         let apps = NapEngine.shared.napped.filter { !$0.frozen.isEmpty }
         let total = apps.reduce(0) { $0 + $1.frozen.count }
         return VStack(alignment: .leading, spacing: 6) {
-            statLine("Helpers frozen now", "\(total) in \(apps.count) app\(apps.count == 1 ? "" : "s")")
-            statLine("Freezes since launch", "\(NapEngine.shared.freezeCount)")
+            statLine("Parts paused now", "\(total) in \(apps.count) app\(apps.count == 1 ? "" : "s")")
+            statLine("Times paused since opening", "\(NapEngine.shared.freezeCount)")
             ForEach(apps) { app in
                 HStack {
                     Text(app.name).font(.caption)
                     Spacer()
-                    Text("\(app.frozen.count) \(app.isStopped ? "stopped" : "running 5 s")")
+                    Text("\(app.frozen.count) \(app.isStopped ? "paused" : "running for 5 s")")
                         .font(.system(size: 11, design: .monospaced)).foregroundStyle(.secondary)
                 }
             }
-            Text("Only Electron apps with no visible window and nothing keeping the Mac awake. Compare CPU in Top apps under Power stats.")
+            Text("Only Electron apps with no window showing and nothing keeping the Mac awake. To see the effect, look at \"Busiest apps\" under \"Savings report\".")
                 .font(.caption2).foregroundStyle(.secondary)
         }
         .padding(.leading, 4)
@@ -136,8 +211,8 @@ struct FlagDetail: View {
 
     private var cooldown: some View {
         VStack(alignment: .leading, spacing: 6) {
-            statLine("Naps held back", "\(stats.audit.cooldownHolds)")
-            Text("Apps woken in the last 10 min must stay in the background for 3 min before they nap again.")
+            statLine("Naps delayed", "\(stats.audit.cooldownHolds)")
+            Text("An app you just woke up waits 3 min in the background before it can nap again.")
                 .font(.caption2).foregroundStyle(.secondary)
             HStack { Spacer(); Button("Reset") { stats.reset() }.controlSize(.mini) }
         }
@@ -148,10 +223,10 @@ struct FlagDetail: View {
         let a = stats.audit
         return VStack(alignment: .leading, spacing: 6) {
             statLine("Helpers checked", "\(a.checks)")
-            statLine("Joined late (throttled)", "\(a.joined)")
-            statLine("Throttle undone (re-applied)", "\(a.drifted)")
-            statLine("Already background (left alone)", "\(a.leftAlone)")
-            statLine("Still throttled after restore", "\(a.restoreStuck)")
+            statLine("Started late (now napping)", "\(a.joined)")
+            statLine("Slowdown lost (applied again)", "\(a.drifted)")
+            statLine("Already slowed by macOS (left alone)", "\(a.leftAlone)")
+            statLine("Still slowed after waking", "\(a.restoreStuck)")
             HStack { Spacer(); Button("Reset") { stats.reset() }.controlSize(.mini) }
         }
         .padding(.leading, 4)
@@ -159,11 +234,13 @@ struct FlagDetail: View {
 
     // MARK: Pieces
 
-    private var header: some View {
+    private var header: some View { headerView(stats.off.seconds, stats.on.seconds) }
+
+    private func headerView(_ offSeconds: Double, _ onSeconds: Double) -> some View {
         HStack {
             Spacer()
-            Text("Off · \(duration(stats.off.seconds))").frame(width: 92, alignment: .trailing)
-            Text("On · \(duration(stats.on.seconds))").frame(width: 92, alignment: .trailing)
+            Text("Off · \(duration(offSeconds))").frame(width: 92, alignment: .trailing)
+            Text("On · \(duration(onSeconds))").frame(width: 92, alignment: .trailing)
         }
         .font(.caption2).foregroundStyle(.secondary)
     }
@@ -202,3 +279,4 @@ struct FlagDetail: View {
         s < 90 ? "\(Int(s)) s" : s < 5400 ? "\(Int(s / 60)) min" : String(format: "%.1f h", s / 3600)
     }
 }
+#endif

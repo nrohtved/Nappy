@@ -1,3 +1,4 @@
+#if !PUBLIC
 import AppKit
 import Darwin
 import Observation
@@ -106,6 +107,7 @@ final class Stats {
     func reset() {
         off = StatBucket(); on = StatBucket(); events = NapEvents(); apps = [:]; audit = AuditCounts()
         previous = [:]; lastSample = nil; lastMode = nil
+        BatteryStats.shared.reset()
         save()
     }
 
@@ -148,7 +150,7 @@ final class Stats {
             engine.isNappable($0) && $0.processIdentifier != front && !settings.isIgnored($0.bundleIdentifier)
         }
         let roots = rootApps.map(\.processIdentifier)
-        let owner = Self.members(of: roots)
+        let owner = ProcessTable.members(of: roots)
         let members = Set(owner.keys)
         var perApp: [pid_t: Counters] = [:]
 
@@ -184,7 +186,7 @@ final class Stats {
             else { stat.off.seconds += dt; stat.off.cpuSeconds += d.cpu; stat.off.cycles += d.cycles; stat.off.wakeups += d.wakeups }
             apps[name] = stat
         }
-        liveNote = "\(members.count) processes in \(roots.count) background apps"
+        liveNote = "\(members.count) processes in \(roots.count) apps in the background"
         save()
     }
 
@@ -211,45 +213,6 @@ final class Stats {
         if let d = try? JSONEncoder().encode(s) { UserDefaults.standard.set(d, forKey: key) }
     }
 
-    /// Every process that belongs to one of the apps: the app, its children, and processes macOS attributes to it.
-    /// pid → the process macOS holds responsible for it. One call per process, so it is shared between the
-    /// sampler, the audit and the freeze check for a few seconds instead of being rebuilt by each.
-    private static var responsibleCache: (time: Date, map: [pid_t: pid_t])?
-
-    static func responsibleMap() -> [pid_t: pid_t] {
-        if let c = responsibleCache, Date().timeIntervalSince(c.time) < 8 { return c.map }
-        var map: [pid_t: pid_t] = [:]
-        if let responsible = NapEngine.responsibleFn {
-            let count = Int(proc_listallpids(nil, 0))
-            if count > 0 {
-                var all = [pid_t](repeating: 0, count: count + 64)
-                let n = Int(proc_listallpids(&all, Int32(all.count * MemoryLayout<pid_t>.size)))
-                for pid in all.prefix(max(n, 0)) where pid > 1 { map[pid] = responsible(pid) }
-            }
-        }
-        responsibleCache = (Date(), map)
-        return map
-    }
-
-    static func members(of roots: [pid_t]) -> [pid_t: pid_t] {
-        var owner: [pid_t: pid_t] = [:]
-        for r in roots {
-            owner[r] = r
-            var queue = [r]
-            while let p = queue.popLast() {
-                var buf = [pid_t](repeating: 0, count: 256)
-                let bytes = proc_listchildpids(p, &buf, Int32(buf.count * MemoryLayout<pid_t>.size))
-                guard bytes > 0 else { continue }
-                for kid in buf.prefix(Int(bytes) / MemoryLayout<pid_t>.size) where kid > 0 && owner[kid] == nil {
-                    owner[kid] = r; queue.append(kid)
-                }
-            }
-        }
-        let rootSet = Set(roots)
-        for (pid, r) in responsibleMap() where owner[pid] == nil && rootSet.contains(r) { owner[pid] = r }
-        return owner
-    }
-
     private static func read(_ pid: pid_t) -> Counters? {
         var ru = rusage_info_v6()
         let r = withUnsafeMutablePointer(to: &ru) {
@@ -261,3 +224,4 @@ final class Stats {
                         cycles: Double(ru.ri_cycles), wakeups: Double(ru.ri_interrupt_wkups))
     }
 }
+#endif
