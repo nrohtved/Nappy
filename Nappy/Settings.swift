@@ -13,9 +13,7 @@ struct IgnoredApp: Codable, Hashable, Identifiable {
 final class Settings {
     static let shared = Settings()
 
-    // Master switch (the green pill in the header).
-    var isOn = true { didSet { save() } }
-    // The "Nap Idle Apps" feature toggle.
+    // The switch on the Nap card: napping on or off.
     var napEnabled = true { didSet { save() } }
     /// Seconds an app must stay in the background before it is napped (minimum 5).
     var delaySeconds = 60 { didSet { save() } }
@@ -29,14 +27,14 @@ final class Settings {
     @ObservationIgnored private let key = "nappy.settings.v1"
 
     private struct Stored: Codable {
-        var isOn: Bool, napEnabled: Bool, delaySeconds: Int, ignored: [IgnoredApp]
+        var napEnabled: Bool, delaySeconds: Int, ignored: [IgnoredApp]
         var onlyWithoutWindows: Bool, respectPowerAssertions: Bool
     }
 
     private init() {
         if let data = UserDefaults.standard.data(forKey: key),
            let s = try? JSONDecoder().decode(Stored.self, from: data) {
-            isOn = s.isOn; napEnabled = s.napEnabled; delaySeconds = max(5, s.delaySeconds)
+            napEnabled = s.napEnabled; delaySeconds = max(5, s.delaySeconds)
             ignored = s.ignored
             onlyWithoutWindows = s.onlyWithoutWindows
             respectPowerAssertions = s.respectPowerAssertions
@@ -49,7 +47,7 @@ final class Settings {
 
     private func save() {
         guard !loading else { return }
-        let s = Stored(isOn: isOn, napEnabled: napEnabled, delaySeconds: delaySeconds, ignored: ignored,
+        let s = Stored(napEnabled: napEnabled, delaySeconds: delaySeconds, ignored: ignored,
                        onlyWithoutWindows: onlyWithoutWindows,
                        respectPowerAssertions: respectPowerAssertions)
         if let data = try? JSONEncoder().encode(s) { UserDefaults.standard.set(data, forKey: key) }

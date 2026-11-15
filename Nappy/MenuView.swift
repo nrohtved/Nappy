@@ -82,15 +82,14 @@ struct MenuView: View {
                 Text(engine.statusText).font(.caption2).foregroundStyle(.secondary)
             }
             Spacer()
-            Button { settings.isOn.toggle() } label: {
-                HStack(spacing: 8) {
-                    Circle().fill(settings.isOn ? .green : .gray).frame(width: 7, height: 7)
-                    Text(settings.isOn ? "On" : "Off").font(.callout.weight(.semibold))
-                }
-                .padding(.horizontal, 14).padding(.vertical, 6)
-                .glassEffect(.regular.tint(settings.isOn ? .green.opacity(0.35) : nil).interactive(), in: .capsule)
+            // Shows the state only; the switch on the Nap card turns napping on and off.
+            let active = settings.napEnabled
+            HStack(spacing: 8) {
+                Circle().fill(active ? .green : .gray).frame(width: 7, height: 7)
+                Text(active ? "On" : "Off").font(.callout.weight(.semibold))
             }
-            .buttonStyle(.plain)
+            .padding(.horizontal, 14).padding(.vertical, 6)
+            .glassEffect(.regular.tint(active ? .green.opacity(0.35) : nil), in: .capsule)
         }
         .padding(.horizontal, 4)
     }
@@ -114,7 +113,7 @@ struct MenuView: View {
                 } else {
                     limited(count: engine.napped.count) {
                         ForEach(engine.napped) { app in
-                            HStack(spacing: 10) {
+                            HStack(spacing: 6) {
                                 appIcon(app.icon)
                                 HStack(spacing: 4) {
                                     Text(app.name).font(.subheadline).lineLimit(1)
@@ -127,13 +126,13 @@ struct MenuView: View {
                                 }
                                 Spacer(minLength: 4)
                                 Button { engine.resume(pid: app.pid) } label: {
-                                    Image(systemName: "arrowshape.turn.up.left.circle.fill").font(.title3)
+                                    rowGlyph("arrow.uturn.left.circle.fill")
                                 }
                                 .buttonStyle(.plain).foregroundStyle(.secondary).help("Wake this app up")
                                 if flags.isOn(.forceNap), let id = app.bundleID {
                                     let locked = engine.isForced(bundleID: id)
                                     Button { engine.setForced(bundleID: id, name: app.name, on: !locked) } label: {
-                                        Image(systemName: locked ? "lock.fill" : "lock.open").font(.title3)
+                                        rowGlyph(locked ? "lock.fill" : "lock.open")
                                     }
                                     .buttonStyle(.plain).foregroundStyle(locked ? Color.accentColor : .secondary)
                                     .help(locked ? "Locked: paused completely while it naps, only Nappy can wake it" : "Lock: pause this app completely while it naps, so it cannot wake itself")
@@ -142,7 +141,7 @@ struct MenuView: View {
                                     if let id = app.bundleID { settings.ignore(bundleID: id, name: app.name) }
                                     engine.resume(pid: app.pid)
                                 } label: {
-                                    Image(systemName: "nosign").font(.title3)
+                                    rowGlyph("minus.circle.fill")
                                 }
                                 .buttonStyle(.plain).foregroundStyle(.secondary).help("Never nap this app")
                             }
@@ -162,13 +161,14 @@ struct MenuView: View {
                 }
                 limited(count: settings.ignored.count) {
                     ForEach(settings.ignored) { app in
-                        HStack(spacing: 10) {
+                        HStack(spacing: 6) {
                             appIcon(icon(forBundleID: app.bundleID))
                             Text(app.name).font(.subheadline).lineLimit(1)
                             Spacer()
                             Button { settings.ignored.removeAll { $0.id == app.id } } label: {
-                                Image(systemName: "minus.circle.fill").font(.body).foregroundStyle(.secondary)
-                            }.buttonStyle(.plain)
+                                rowGlyph("minus.circle.fill")
+                            }
+                            .buttonStyle(.plain).foregroundStyle(.secondary).help("Allow this app to nap again")
                         }
                         .frame(height: Self.rowHeight)
                     }
@@ -405,8 +405,9 @@ struct MenuView: View {
     #if !PUBLIC
     private static let clipRoom = EdgeInsets(top: 24, leading: 24, bottom: 48, trailing: 24)
     #endif
-    private static let rowHeight: CGFloat = 22
-    private static let rowSpacing: CGFloat = 2
+    private static let rowHeight: CGFloat = 20
+    private static let rowSpacing: CGFloat = 1
+    private static let glyphSize: CGFloat = 18      // app icons and row buttons are all this size
     private static let visibleRows = 5
 
     /// Shows up to five rows; a longer list scrolls inside a box five rows tall.
@@ -443,7 +444,12 @@ struct MenuView: View {
         Group {
             if let image { Image(nsImage: image).resizable() } else { Image(systemName: "app.dashed").resizable() }
         }
-        .frame(width: 20, height: 20)
+        .frame(width: Self.glyphSize, height: Self.glyphSize)
+    }
+
+    /// A button icon in a Napping Now or Never Nap These Apps row: same symbol size everywhere.
+    private func rowGlyph(_ symbol: String) -> some View {
+        Image(systemName: symbol).font(.body).frame(width: Self.glyphSize, height: Self.glyphSize)
     }
 
     private func icon(forBundleID id: String) -> NSImage? {
@@ -488,7 +494,7 @@ private struct Card<Content: View>: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                if let isOn { Toggle("", isOn: isOn).labelsHidden().toggleStyle(.switch).controlSize(.small) }
+                if let isOn { Toggle("", isOn: isOn).labelsHidden().toggleStyle(.switch) }
             }
             if expanded {
                 Divider().padding(.vertical, 8)

@@ -43,7 +43,7 @@ struct NappyApp: App {
         MenuBarExtra {
             MenuView()
         } label: {
-            let active = settings.isOn && settings.napEnabled
+            let active = settings.napEnabled
             #if PUBLIC
             Image(systemName: active ? "moon.zzz.fill" : "moon.zzz")
             #else

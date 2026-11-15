@@ -106,9 +106,9 @@ final class NapEngine {
     // MARK: Main loop
 
     func tick() {
-        guard settings.isOn, settings.napEnabled else {
-            resumeAll(reason: settings.isOn ? "nap turned off" : "Nappy turned off"); backgroundSince.removeAll()
-            statusText = settings.isOn ? "Napping is off" : "Nappy is off"
+        guard settings.napEnabled else {
+            resumeAll(reason: "nap turned off"); backgroundSince.removeAll()
+            statusText = "Napping is off"
             return
         }
         let now = Date()

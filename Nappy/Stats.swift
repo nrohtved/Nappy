@@ -142,7 +142,7 @@ final class Stats {
             return
         }
         let now = Date()
-        let mode = settings.isOn && settings.napEnabled
+        let mode = settings.napEnabled
         let engine = NapEngine.shared
         let front = NSWorkspace.shared.frontmostApplication?.processIdentifier
 

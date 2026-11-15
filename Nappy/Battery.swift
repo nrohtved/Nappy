@@ -114,7 +114,7 @@ final class BatteryStats {
         }
         available = true
         now = reading
-        let mode = settings.isOn && settings.napEnabled
+        let mode = settings.napEnabled
         if lastMode != mode { lastMode = mode; valid = false }
         guard let acc = reading.accumulatedLoad, let cnt = reading.loadCount else { return }
         if let s = seen, cnt != s.cnt {
