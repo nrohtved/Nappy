@@ -6,11 +6,25 @@
 
 <p align="center">A small menu bar app for the Mac that puts apps you are not using to sleep, so your Mac works less and uses less power. 😴</p>
 
-> 🚧 **Early alpha (0.1.0).** Built for a very recent macOS (the project targets macOS 27.2) and uses the new glass look.
+> ✅ **Version 1.0.** Built for a very recent macOS (the project targets macOS 27.2) and uses the new glass look.
 
 <p align="center">
   <img src="assets/screenshot.png" width="350" alt="The Nappy menu">
 </p>
+
+## 📥 Installing (a little extra work)
+
+I do not have a paid Apple Developer account, so Nappy is **not signed or notarized by Apple**. macOS will block it the first time, and opening it takes a few extra steps:
+
+1. Download the zip from [Releases](../../releases), unzip it, and move **Nappy.app** to your Applications folder.
+2. Open it once. macOS says it cannot be verified. Close that message.
+3. Open **System Settings → Privacy & Security**, scroll down, and click **Open Anyway** next to Nappy. Confirm with your password.
+4. Or, in Terminal, remove the quarantine flag and open it normally:
+   ```bash
+   xattr -dr com.apple.quarantine /Applications/Nappy.app
+   ```
+
+You only need to do this once. If you would rather not run an unsigned app, that is fair: wait for a signed release.
 
 ## 🌙 What is Nappy?
 
@@ -63,7 +77,7 @@ The numbers vary a little between Macs and macOS versions.
 - ⏸️ **Locked apps are paused, not just slowed.** A paused app cannot show notifications, sync, or answer other apps until it is woken, so locking an app can make you miss its notifications. A "Quit" command sent to a paused app by another program does nothing until the app is woken (Force Quit always works). Opening a paused app through Spotlight or a notification has not been fully tested.
 - 🐢 **Apps may feel slower for a moment** right after you switch back to them while they catch up.
 - 🎮 **Games and video editors:** add them to the ignore list. Napping an app that is busy in the background can make it stutter.
-- 📦 **Nappy is not sandboxed** because it needs to change other apps' priority. That means it cannot be sold in the Mac App Store, and the early builds are not yet signed for distribution, so macOS may ask you to confirm opening it (right-click → Open).
+- 📦 **Nappy is not sandboxed** because it needs to change other apps' priority. That means it cannot be sold in the Mac App Store, and the builds are not signed by Apple (see "Installing" above), so macOS asks you to confirm opening it.
 - 💾 Your settings are saved on your Mac. The default ignore list includes Terminal, iTerm2, Xcode, Claude and VS Code if they are installed.
 
 ## 🔒 Privacy
