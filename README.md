@@ -88,6 +88,10 @@ The numbers vary a little between Macs and macOS versions.
 - 👀 It looks only at what it needs to decide whether to nap an app: which apps are running, which one is in front, where windows are on screen (position and size, not their contents), and which apps have asked macOS to keep the Mac awake. It does not read your files, your documents or the contents of any window, and it does not take screenshots.
 - 🏠 Your settings (delay, ignore list, locked apps) stay on your Mac in the app's preferences. The public build writes no log files.
 
+## 📄 License
+
+Nappy is free software under the [GNU General Public License v3.0](LICENSE). You can use, study, change and share it, but any version you share must stay under the same license and come with its source code. There is no warranty.
+
 ## ☕ Support
 
 If Nappy is useful to you, you can [buy me a coffee ☕](https://buymeacoffee.com/nrohtved).
