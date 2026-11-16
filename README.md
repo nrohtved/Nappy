@@ -29,7 +29,7 @@ Some apps are never napped: the app you are using, apps on your ignore list, mac
   - *Don't Nap Apps You Can See* – apps with a window showing on screen, for example side by side, are left alone.
   - *Don't Nap Busy Apps* – apps playing sound, in a call or downloading keep running normally. The icons of the apps Nappy currently sees as busy are shown under this option.
 - 📌 **Pin** (bottom left) – turns the menu into a window that stays open.
-- ℹ️ **About** and ☕ **Buy me a coffee** – next to the pin.
+- ℹ️ **About** and ☕ **Buy me a coffee** – next to the pin. The coffee button stays hidden while the orange coffee card at the bottom of the menu is showing. Close the card with its ✕ and the button appears in the footer. The card comes back after 3 days.
 
 ### 💪 Two stronger tools
 
@@ -50,7 +50,7 @@ Some apps are never napped: the app you are using, apps on your ignore list, mac
 
 🙈 Nappy does not collect anything and does not talk to the internet.
 
-- 🚫 It has no analytics, no accounts and no network code. The only link is the *Buy me a coffee* button, which opens a web page in your browser when you press it.
+- 🚫 It has no analytics, no accounts and no network code. The only link is the *Buy me a coffee* card and button, which open a web page in your browser when you press them.
 - 👀 It looks only at what it needs to decide whether to nap an app: which apps are running, which one is in front, where windows are on screen (position and size, not their contents), and which apps have asked macOS to keep the Mac awake. It does not read your files, your documents or the contents of any window, and it does not take screenshots.
 - 🏠 Your settings (delay, ignore list, locked apps) stay on your Mac in the app's preferences. The public build writes no log files. A development build keeps an activity log in `~/Library/Logs/Nappy` for testing.
 

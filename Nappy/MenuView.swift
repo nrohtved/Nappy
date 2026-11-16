@@ -629,7 +629,12 @@ private struct Card<Content: View>: View {
                     HStack(spacing: 8) {
                         Image(systemName: "chevron.down").font(.caption.weight(.semibold))
                             .rotationEffect(.degrees(expanded ? 0 : -90)).frame(width: 14)
-                        Image(systemName: symbol).font(.system(size: 18, weight: .light)).foregroundStyle(.secondary).frame(width: 26)
+                        Image(systemName: symbol).font(.system(size: 18, weight: isOn?.wrappedValue == true ? .regular : .light))
+                            .foregroundStyle(isOn?.wrappedValue == true
+                                ? AnyShapeStyle(LinearGradient(colors: [Color(red: 0.42, green: 0.36, blue: 0.90), Color(red: 0.70, green: 0.32, blue: 0.88)],
+                                                               startPoint: .topLeading, endPoint: .bottomTrailing))
+                                : AnyShapeStyle(.secondary))
+                            .frame(width: 26)
                         VStack(alignment: .leading, spacing: 1) {
                             Text(title).font(.subheadline.weight(.semibold))
                             Text(subtitle).font(.caption).foregroundStyle(.secondary)
