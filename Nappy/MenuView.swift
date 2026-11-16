@@ -17,6 +17,7 @@ struct MenuView: View {
     #endif
     @Bindable private var settings = Settings.shared
     private var engine = NapEngine.shared
+    private var gate = MenuPanelGate.shared
 
     @State private var napExpanded = true
     @State private var optionsExpanded = false
@@ -42,8 +43,11 @@ struct MenuView: View {
                         .fixedSize(horizontal: false, vertical: true)
                         .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { contentHeight = $0 }
                 }
+        } else if gate.isOpen {
+            content.onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { gate.lastHeight = $0 }
         } else {
-            content
+            // Menu closed: nothing is built (see MenuPanelGate), only a box so the panel opens at the right size.
+            Color.clear.frame(width: 350, height: gate.lastHeight)
         }
     }
 

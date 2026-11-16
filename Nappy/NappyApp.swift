@@ -5,6 +5,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NapEngine.shared.start()
         PinnablePanel.install()
+        MenuPanelGate.shared.start()
         #if !PUBLIC
         // Self-test for the pinned window: `open -n "Nappy Dev.app" --args --pin-test` pins the menu and opens and
         // closes the cards by itself for half a minute, so a crash or a jumping header can be checked without clicking.

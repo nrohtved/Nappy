@@ -20,6 +20,7 @@
 
 import SwiftUI
 import AppKit
+import Darwin
 
 @MainActor
 enum PinnablePanel {
@@ -85,6 +86,19 @@ enum PinnablePanel {
         panel?.close()
     }
 
+    /// After the pinned window is closed its SwiftUI content would stay in memory for good (about 20 MB), so the
+    /// window is thrown away and a new one is built the next time the menu is pinned.
+    private static func release() {
+        guard let p = panel, !p.isVisible else { return }
+        for o in observers { NotificationCenter.default.removeObserver(o) }
+        observers.removeAll()
+        if let c = closeObserver { NotificationCenter.default.removeObserver(c); closeObserver = nil }
+        p.contentViewController = nil
+        panel = nil
+        topEdge = nil
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { malloc_zone_pressure_relief(nil, 0) }
+    }
+
     /// Opens the pinned window with `content`, in the place of the menu panel.
     static func show<Content: View>(title: String = "", @ViewBuilder content: () -> Content) {
         if panel == nil {
@@ -104,7 +118,7 @@ enum PinnablePanel {
             p.isReleasedWhenClosed = false
             p.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
             closeObserver = NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: p, queue: .main) { _ in
-                Task { @MainActor in allowMenuPanel(); onClose?() }
+                Task { @MainActor in allowMenuPanel(); onClose?(); release() }
             }
             panel = p
             keepTop(of: p)
