@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="356" height="92" viewBox="0 0 356 92">
+  <defs>
+    <linearGradient id="btn" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2C2C2E"/><stop offset="1" stop-color="#1D1D1F"/></linearGradient>
+    <linearGradient id="ic" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0A84FF"/><stop offset=".55" stop-color="#5E5CE6"/><stop offset="1" stop-color="#BF5AF2"/></linearGradient>
+    <filter id="sh" x="-20%" y="-40%" width="140%" height="200%"><feDropShadow dx="0" dy="10" stdDeviation="12" flood-color="#000" flood-opacity=".28"/></filter>
+  </defs>
+  <g id="Download button">
+    <rect id="Button" x="10" y="10" width="336" height="72" rx="36" fill="url(#btn)" filter="url(#sh)"/>
+    <circle id="Icon background" cx="46" cy="46" r="24" fill="url(#ic)"/>
+    <g id="Download icon" fill="none" stroke="#FFFFFF" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" transform="translate(33 33)">
+      <path d="M13 3v12"/><path d="m8 11 5 5 5-5"/><path d="M6 21h14"/>
+    </g>
+    <text id="Title" x="82" y="46" font-family="SF Pro Display, Inter, Helvetica Neue, Arial, sans-serif" font-size="21" font-weight="700" letter-spacing="-0.5" fill="#FFFFFF">Download for Mac</text>
+    <text id="Subtitle" x="82" y="65" font-family="SF Pro Text, Inter, Helvetica Neue, Arial, sans-serif" font-size="13.5" fill="#A1A1A6">Version 1.0.1 · macOS 26+ · Free</text>
+  </g>
+</svg>

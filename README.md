@@ -9,7 +9,7 @@
 > ✅ **Version 1.0.** Needs **macOS 26 (Tahoe) or later** and uses the new glass look. Tested on macOS 27.2; macOS 26 has not been tested yet.
 
 <p align="center">
-  <img src="assets/screenshot.png" width="350" alt="The Nappy menu">
+  <img src="assets/Nappy%20bento.png" width="800" alt="Nappy at a glance: what it does, how it works, and the menu">
 </p>
 
 ## 📥 Installing (a little extra work)
