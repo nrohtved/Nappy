@@ -6,7 +6,7 @@
 
 <p align="center">A small menu bar app for the Mac that puts apps you are not using to sleep, so your Mac works less and uses less power. 😴</p>
 
-> ✅ **Version 1.0.** Built for a very recent macOS (the project targets macOS 27.2) and uses the new glass look.
+> ✅ **Version 1.0.** Needs **macOS 26 (Tahoe) or later** and uses the new glass look. Tested on macOS 27.2; macOS 26 has not been tested yet.
 
 <p align="center">
   <img src="assets/screenshot.png" width="350" alt="The Nappy menu">
