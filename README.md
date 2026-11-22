@@ -36,10 +36,10 @@ Nappy lives in the menu bar. There is no Dock icon and no main window.
 
 1. Nappy checks your running apps every few seconds.
 2. An app that has stayed in the background for the time you choose (5 seconds to 1 hour) is put into **macOS background mode**: lowest CPU priority, slower disk and network, timers grouped together. The app keeps running, so sound, downloads and sync are not cut off.
-3. The app's helper processes (for example the web content processes of a browser) are slowed down together with it.
+3. The app's helper processes (for example the web content processes of a browser) are slowed down together with it. Other apps with their own Dock icon that it started, such as a game opened from a launcher, are left alone.
 4. The moment you switch back to the app, press its wake button, or quit Nappy, everything goes back to normal. If Nappy ever quits unexpectedly, it puts everything back the next time it opens.
 
-Some apps are never napped: the app you are using, apps on your ignore list, macOS's own parts (Finder, Dock, and so on), and, if you keep the safety options on, apps that are playing sound, in a call or downloading.
+Some apps are never napped: the app you are using (including an app with a full-screen window), apps on your ignore list, macOS's own parts (Finder, Dock, and so on), and, if you keep the safety options on, apps that are playing sound, in a call or downloading.
 
 ## 🧰 What is in the menu
 
@@ -50,7 +50,7 @@ Some apps are never napped: the app you are using, apps on your ignore list, mac
   - *Open Nappy at Login*
   - *Don't Nap Apps You Can See*: apps with a window showing on screen, for example side by side, are left alone.
   - *Don't Nap Busy Apps*: apps playing sound, in a call or downloading keep running normally. The icons of the apps Nappy currently sees as busy are shown under this option.
-- 📌 **Pin** (bottom left): turns the menu into a window that stays open.
+- 📌 **Pin** (bottom left): turns the menu into a window that stays open on the desktop where you opened it.
 - ℹ️ **About** and ☕ **Buy me a coffee**: next to the pin. The coffee button stays hidden while the orange coffee card at the bottom of the menu is showing. Close the card with its ✕ and the button appears in the footer. The card comes back after 3 days.
 
 ### 💪 Two stronger tools

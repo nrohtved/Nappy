@@ -25,6 +25,8 @@ import Darwin
 @MainActor
 enum PinnablePanel {
     static var onClose: (() -> Void)?
+    /// Asked each time the window is opened: true = it shows on every desktop (Space), false = only on the one it was opened on.
+    static var onAllSpaces: () -> Bool = { true }
 
     private static var panel: NSPanel?
     private static var closeObserver: NSObjectProtocol?
@@ -116,7 +118,8 @@ enum PinnablePanel {
             p.hidesOnDeactivate = false
             p.animationBehavior = .none
             p.isReleasedWhenClosed = false
-            p.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+            // On every desktop by default; with `onAllSpaces` off it is a plain panel that stays on the desktop it was opened on.
+            p.collectionBehavior = onAllSpaces() ? [.canJoinAllSpaces, .fullScreenAuxiliary] : [.fullScreenAuxiliary]
             closeObserver = NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: p, queue: .main) { _ in
                 Task { @MainActor in allowMenuPanel(); onClose?(); release() }
             }

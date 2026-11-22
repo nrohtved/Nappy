@@ -20,6 +20,9 @@ enum Flag: String, CaseIterable, Identifiable {
     case tintPanel
     case wakeOnHover
     case coffeeCard
+    case fullScreenGuard
+    case spareOtherApps
+    case panelOneDesktop
 
     var id: String { rawValue }
 
@@ -39,6 +42,9 @@ enum Flag: String, CaseIterable, Identifiable {
         case .tintPanel: "See-through pinned window"
         case .wakeOnHover: "Wake paused apps on hover"
         case .coffeeCard: "Coffee card"
+        case .fullScreenGuard: "Protect full-screen apps"
+        case .spareOtherApps: "Don't nap apps started by a napping app"
+        case .panelOneDesktop: "Pinned window on one desktop"
         }
     }
 
@@ -57,6 +63,9 @@ enum Flag: String, CaseIterable, Identifiable {
         case .batteryStats: "Compares how much power the whole Mac uses with Nappy off and on, and shows the % saved and the extra battery time."
         case .freezeHelpers: "For apps built with Electron (Figma, Notion…): while napping with no window showing, pauses the parts that draw the screen for 55 s, then lets them run for 5 s, and repeats."
         case .batchSave: "Saves the statistics once a minute instead of after every change, which uses less power."
+        case .fullScreenGuard: "An app with a window that covers a whole screen is never napped, even if macOS does not report it as the front app. Use it if the app you are using full screen gets napped."
+        case .spareOtherApps: "When an app naps, other apps with their own Dock icon that it started (a game opened from a launcher, an app opened from another app) are left alone, so the app you are using is not slowed down with its parent."
+        case .panelOneDesktop: "The pinned window is an ordinary panel: it stays on the desktop where you opened it and does not follow you to every desktop. Takes effect the next time you pin the menu. Needs Pin the menu."
         case .groupAudit: "Every 30 s, checks that the helper processes of each napped app are napping too, and that they go back to normal when you return."
         }
     }
@@ -120,7 +129,7 @@ import Observation
 /// The public build has no experiments menu: the experiments that were switched on are simply always on,
 /// and the ones that were off were cut.
 enum Flag: String {
-    case pinPanel, groupAudit, freezeHelpers, forceNap, wakeOnHover, coffeeCard
+    case pinPanel, groupAudit, freezeHelpers, forceNap, wakeOnHover, coffeeCard, fullScreenGuard, spareOtherApps, panelOneDesktop
 }
 
 @Observable

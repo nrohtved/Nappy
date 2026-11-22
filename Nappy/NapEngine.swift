@@ -141,6 +141,12 @@ final class NapEngine {
             let f = settings.respectPowerAssertions ? pidsProtectedByPictureInPicture() : []
             floatingCache = f; return f
         }
+        var fullScreenCache: Set<pid_t>?
+        func fullScreen() -> Set<pid_t> {
+            if let f = fullScreenCache { return f }
+            let f = pidOfFullScreenWindow()
+            fullScreenCache = f; return f
+        }
         let delay = TimeInterval(settings.delaySeconds)
         var alive = Set<pid_t>()
 
@@ -177,6 +183,14 @@ final class NapEngine {
                 continue
             }
             #endif
+            // A full-screen window means the app is being used, whatever the system says is in front.
+            if flags.isOn(.fullScreenGuard), fullScreen().contains(pid) {
+                if skipReason[pid] != "full screen" {
+                    skipReason[pid] = "full screen"
+                    log.add("skip  \(app.localizedName ?? "App") (pid \(pid)) — has a full-screen window")
+                }
+                continue
+            }
             if visible().contains(pid) || awake().contains(pid) || floating().contains(pid) {
                 let reason = visible().contains(pid) ? "has a visible window"
                     : floating().contains(pid) ? "kept awake (busy)" : "keeping Mac awake (power assertion)"
@@ -250,7 +264,7 @@ final class NapEngine {
     private func suspend(_ app: NSRunningApplication, idle: TimeInterval) {
         let pid = app.processIdentifier
         let name = app.localizedName ?? "App"
-        let group = [pid] + descendants(of: pid)
+        let group = helpers(of: pid)
         // Helpers macOS already runs in the background (hidden tabs, idle XPC services) are not touched at all, so
         // there is nothing of ours to undo on them. The app itself is always throttled and always restored.
         let preBG: Set<pid_t> = flags.isOn(.groupAudit) ? Set(group.filter { $0 != pid && isBackground($0) }) : []
@@ -340,7 +354,8 @@ final class NapEngine {
             let app = napped[i]
             let current = Set(owner.filter { $0.value == app.pid }.keys)
             let known = Set(app.pids)
-            let joined = current.subtracting(known).filter { $0 > 1 && isAlive($0) }
+            let otherApps = flags.isOn(.spareOtherApps) ? Set(runningRegularApps().map(\.processIdentifier)).subtracting([app.pid]) : []
+            let joined = current.subtracting(known).filter { $0 > 1 && isAlive($0) && !otherApps.contains($0) }
             let drifted = known.filter { $0 > 1 && isAlive($0) && !app.preBG.contains($0) && !isBackground($0) }
             if !joined.isEmpty { setBackground(Array(joined), true) }
             if !drifted.isEmpty { setBackground(Array(drifted), true) }
@@ -648,6 +663,47 @@ final class NapEngine {
             if setpriority(PRIO_DARWIN_PROCESS, id_t(pid), on ? PRIO_DARWIN_BG : 0) == 0 { ok = true }
         }
         return ok
+    }
+
+    /// The app and its helpers, without any other app that has its own Dock icon. A game started from a launcher, or an
+    /// app opened from another app, is a child of it (or macOS holds the other app responsible for it), so napping the
+    /// launcher would slow down the very app you are using, which is never napped on its own.
+    private func helpers(of pid: pid_t) -> [pid_t] {
+        var group = [pid] + descendants(of: pid)
+        guard flags.isOn(.spareOtherApps) else { return group }
+        let apps = Set(runningRegularApps().map(\.processIdentifier)).subtracting([pid])
+        let others = group.filter { apps.contains($0) }
+        if !others.isEmpty {
+            var excluded = Set(others)
+            for o in others { excluded.formUnion(descendants(of: o)) }
+            group.removeAll { excluded.contains($0) }
+            log.add("group \(pid): left out \(others.count) other app(s) started by it")
+        }
+        return group
+    }
+
+    /// The app that owns a window covering a whole screen, in front of everything else (a full-screen app, a game).
+    /// Used as a second opinion next to the system's "frontmost app", which can be a different process than the one
+    /// you are looking at (for example an app started by another app).
+    private func pidOfFullScreenWindow() -> Set<pid_t> {
+        guard let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] else { return [] }
+        let screens = NSScreen.screens.map(\.frame)
+        var result = Set<pid_t>()
+        for w in list {
+            guard (w[kCGWindowLayer as String] as? Int) == 0,
+                  (w[kCGWindowAlpha as String] as? Double ?? 1) > 0,
+                  let pid = w[kCGWindowOwnerPID as String] as? Int32,
+                  let boundsDict = w[kCGWindowBounds as String] as? NSDictionary,
+                  let rect = CGRect(dictionaryRepresentation: boundsDict as CFDictionary) else { continue }
+            // CGWindow bounds have the origin at the top left of the main screen, NSScreen frames at the bottom left.
+            let mainHeight = NSScreen.screens.first?.frame.height ?? 0
+            let flipped = CGRect(x: rect.minX, y: mainHeight - rect.maxY, width: rect.width, height: rect.height)
+            if screens.contains(where: { abs($0.width - flipped.width) < 2 && abs($0.height - flipped.height) < 2
+                                          && abs($0.minX - flipped.minX) < 2 && abs($0.minY - flipped.minY) < 2 }) {
+                result.insert(pid)
+            }
+        }
+        return result
     }
 
     /// Helper processes of an app: its child processes (Chrome/VS Code helpers) plus processes macOS
